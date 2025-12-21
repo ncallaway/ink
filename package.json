@@ -1,0 +1,19 @@
+{
+  "name": "ink",
+  "version": "0.1.0",
+  "description": "DVD backup system with metadata collection, planning, and automated execution",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "dev": "bun run --filter '*' dev",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules",
+    "typecheck": "bun run --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.3"
+  }
+}

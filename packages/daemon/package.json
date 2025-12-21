@@ -1,0 +1,23 @@
+{
+  "name": "@ink/daemon",
+  "version": "0.1.0",
+  "description": "Ink daemon - background service for DVD backup automation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ink/shared": "workspace:*",
+    "hono": "^3.11.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  }
+}
