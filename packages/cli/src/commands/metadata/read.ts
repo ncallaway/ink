@@ -76,6 +76,7 @@ const run = async (options: ReadOptions) => {
     // 4. Full Scan (Slow)
     spinner.start('Reading disc metadata (this may take a minute)...');
     
+    // Run MakeMKV info
     const rawOutput = await runMakeMkvInfo(device);
     const metadata = parseMakeMkvOutput(rawOutput);
 
@@ -118,17 +119,6 @@ async function detectDisc(): Promise<string | null> {
                 const discName = parts[5];
                 
                 if (discName && discName.length > 0) {
-                    // Start by checking /dev/sr0 explicitly if it exists, because mapping MakeMKV index to /dev node is tricky
-                    // For now, we return the MakeMKV syntax, but we might need to map it later
-                    
-                    // Hack: If index 0 is /dev/sr0 (common), assume it.
-                    // A robust solution parses the DRV line deeper or checks /dev/cdrom symlinks.
-                    // For MVP, we'll try to find the device path in the DRV string or default to sr0
-                    
-                    // But wait, the user might have multiple drives.
-                    // MakeMKV `DRV` output usually contains the device path in some form or we can guess.
-                    // Let's assume /dev/sr0 for MVP if we find a disc, or parse `scan` output better if needed.
-                    
                     return 'dev:/dev/sr0'; // Safe default for Linux MVP
                 }
             }
@@ -149,8 +139,8 @@ async function detectDisc(): Promise<string | null> {
 }
 
 async function runMakeMkvInfo(device: string): Promise<string> {
-    // Increase maxBuffer for large metadata
-    const { stdout } = await execAsync(`makemkvcon -r --cache=1 info ${device}`, { maxBuffer: 1024 * 1024 * 10 });
+    // Increase maxBuffer for large metadata, and set minlength to 0 to capture all tracks
+    const { stdout } = await execAsync(`makemkvcon -r --minlength=0 --cache=1 info ${device}`, { maxBuffer: 1024 * 1024 * 10 });
     return stdout;
 }
 
@@ -179,30 +169,18 @@ function parseCsvLine(line: string): string[] {
     return result.map(s => s.replace(/^"|"$/g, '')); // Strip quotes
 }
 
-function parseSize(str: string): number {
-    if (!str) return 0;
-    const parts = str.split(' ');
-    if (parts.length < 2) return 0;
-    const val = parseFloat(parts[0]);
-    const unit = parts[1];
-    let multiplier = 1;
-    if (unit === 'GB') multiplier = 1024 * 1024 * 1024;
-    if (unit === 'MB') multiplier = 1024 * 1024;
-    if (unit === 'KB') multiplier = 1024;
-    return Math.floor(val * multiplier);
-}
-
 // Helper types for parsing
-interface StreamRaw {
+export interface StreamRaw {
     type?: string;
     codec?: string;
     lang?: string;
     langCode?: string;
     channels?: number;
     title?: string;
+    resolution?: string;
 }
 
-function parseMakeMkvOutput(output: string): DiscMetadata | null {
+export function parseMakeMkvOutput(output: string): DiscMetadata | null {
     const lines = output.split('\n');
     let volumeLabel = 'Unknown';
     let discId = '';
@@ -235,50 +213,54 @@ function parseMakeMkvOutput(output: string): DiscMetadata | null {
     };
 
     for (const line of lines) {
+        // CINFO:id,code,value
         if (line.startsWith('CINFO:')) {
             const parts = parseCsvLine(line.substring(6));
             const id = parseInt(parts[0]);
             const value = parts[2];
             
-            if (id === 32) volumeLabel = value; // Volume Name
-        } else if (line.startsWith('TINFO:')) {
+            if (id === 32) volumeLabel = value; // Volume Name (32)
+        } 
+        // TINFO:trackId,code,extra,value
+        else if (line.startsWith('TINFO:')) {
             const parts = parseCsvLine(line.substring(6));
             const trackId = parseInt(parts[0]);
-            const type = parseInt(parts[1]);
-            const value = parts[2];
+            const code = parseInt(parts[1]);
+            const value = parts[3];
             
             const track = getTrack(trackId);
             
-            if (type === 9) track.duration = value;
-            if (type === 10) track.size = parseSize(value);
-            if (type === 2) track.title = value; // Name
-            if (type === 8) track.chapters = parseInt(value);
+            if (code === 9) track.duration = value; // Duration (0:29:41)
+            if (code === 11) track.size = parseInt(value); // Size in bytes
+            if (code === 2) track.title = value; // Name (e.g. "Bluey...")
+            if (code === 8) track.chapters = parseInt(value); // Chapter count
+            if (code === 27) track.title = value; // Filename often better (00.mkv)
 
-        } else if (line.startsWith('SINFO:')) {
+        } 
+        // SINFO:trackId,streamId,code,extra,value
+        else if (line.startsWith('SINFO:')) {
             const parts = parseCsvLine(line.substring(6));
             const trackId = parseInt(parts[0]);
             const streamId = parseInt(parts[1]);
             const code = parseInt(parts[2]);
-            const value = parts[3];
+            const value = parts[4];
             
             const stream = getStream(trackId, streamId);
             
-            // Code 1: Stream Type (6201=Video, 6210=Audio, 6220=Subtitle)
+            // Code 1: Stream Type (6201=Video, 6210=Audio, 6220=Subtitle) - Value is string "Video", "Audio"
             if (code === 1) stream.type = value;
-            // Code 5: Codec Name
+            // Code 5: Codec ID/Name
             if (code === 5) stream.codec = value;
-            // Code 28: Language Code (eng)
-            if (code === 28) stream.langCode = value;
-            // Code 29: Language Name (English)
-            if (code === 29) stream.lang = value;
-            // Code 30: Stream Title
+            // Code 19: Video Resolution (720x480)
+            if (code === 19) stream.resolution = value;
+            // Code 3: Language Code (eng) - The log shows code 3 is 'eng'
+            if (code === 3) stream.langCode = value; 
+            // Code 4: Language Name (English)
+            if (code === 4) stream.lang = value;
+            // Code 30: Stream Description/Title
             if (code === 30) stream.title = value;
-            // Code 19: Channels (for audio)
-            if (code === 19) stream.channels = parseInt(value);
-            // Code 13: Video Width
-            // Code 14: Video Height
-            // Not always in SINFO as simple codes? 
-            // Often in Code 19 for video resolution string "1920x1080"
+            // Code 14: Channels
+            if (code === 14) stream.channels = parseInt(value);
         }
     }
     
@@ -290,7 +272,13 @@ function parseMakeMkvOutput(output: string): DiscMetadata | null {
                 // Video
                 if (stream.type === 'Video' || (stream.type && stream.type.includes('Video'))) {
                    track.video.codec = stream.codec || 'unknown';
-                   // TODO: Parse resolution from description if available
+                   if (stream.resolution) {
+                       const [w, h] = stream.resolution.split('x').map(n => parseInt(n));
+                       if (w && h) {
+                           track.video.width = w;
+                           track.video.height = h;
+                       }
+                   }
                 }
                 // Audio
                 else if (stream.type === 'Audio' || (stream.type && stream.type.includes('Audio'))) {
@@ -303,7 +291,7 @@ function parseMakeMkvOutput(output: string): DiscMetadata | null {
                     });
                 }
                 // Subtitles
-                else if (stream.type === 'Subtitle' || (stream.type && stream.type.includes('Subtitle'))) {
+                else if (stream.type === 'Subtitles' || (stream.type && stream.type.includes('Subtitle'))) {
                     track.subtitles.push({
                         index: streamId,
                         language: stream.langCode || 'und',
