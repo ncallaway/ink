@@ -4,6 +4,21 @@ export type DevicePath = string & { __brand: "drive:DevicePath" };
 // ============================================================================
 // Disc & Metadata Types
 // ============================================================================
+/**
+ * Drive Statuses based on Linux CDROM_DRIVE_STATUS
+ * 
+ * 1 = no disk in tray
+ * 2 = tray open
+ * 3 = reading tray
+ * 4 = disk in tray
+ */
+export enum DriveStatus {
+  NO_INFO = 0,
+  NO_DISK = 1,
+  TRAY_OPEN = 2,
+  READING = 3,
+  DISK_PRESENT = 4,
+}
 
 export interface DiscMetadata {
   discId: string;

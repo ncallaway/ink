@@ -5,12 +5,14 @@
  */
 
 import { disc } from './disc';
+import * as drive from './drive';
 import { InkConfig } from './types';
 
 export * from './types';
 
 export const lib = {
-  disc
+  disc,
+  drive
 }
 
 

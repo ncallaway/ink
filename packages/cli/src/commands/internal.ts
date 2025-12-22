@@ -36,4 +36,16 @@ export const defineInternal = (program: Command) => {
       const {stdout}= await makemkv.driveScan();
       console.log("makemkv stdout", stdout);
     });
+
+  internal
+    .command('drive-status')
+    .requiredOption('--dev <device>', 'Specify the device to check status for')
+    .action((options: { dev: string }) => {
+      const result = lib.drive.detectTray(options.dev);
+      if (result.isOk()) {
+        console.log(`Drive Status (OK): ${result.value} (${lib.drive.DriveStatus[result.value]})`);
+      } else {
+        console.error("Drive Status (ERR): ", result.error);
+      }
+    });
 }
