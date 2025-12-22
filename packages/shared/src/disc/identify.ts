@@ -1,13 +1,13 @@
-import { ok, err, Result, ResultAsync } from 'neverthrow';
+import { ok, err, Result } from 'neverthrow';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
-const execAsync = promisify(exec);
+import { DevicePath, DiscId } from "../types";
 
-export type DiscId = string;
+const execAsync = promisify(exec);
 
 interface MountInfo {
     path: string;
@@ -20,7 +20,7 @@ interface MountInfo {
  * 
  * @param devicePath The device path (e.g., /dev/sr0)
  */
-export async function identifyDisc(devicePath: string): Promise<Result<DiscId, Error>> {
+export async function identify(devicePath: DevicePath): Promise<Result<DiscId, Error>> {
     const mountResult = await ensureMounted(devicePath);
     
     if (mountResult.isErr()) {
@@ -51,7 +51,7 @@ export async function identifyDisc(devicePath: string): Promise<Result<DiscId, E
     }
 }
 
-async function ensureMounted(devicePath: string): Promise<Result<string, Error>> {
+async function ensureMounted(devicePath: DevicePath): Promise<Result<string, Error>> {
     try {
         // 1. Check if already mounted
         const { stdout } = await execAsync(`lsblk -J -o MOUNTPOINT ${devicePath}`);
