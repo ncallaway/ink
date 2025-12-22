@@ -60,6 +60,10 @@ export interface SubtitleTrack {
   title?: string;
 }
 
+export namespace MakeMKV {
+  export type DriveIndex = number & { __brand: "makemkv:drive:Index" };
+}
+
 // ============================================================================
 // Plan Types
 // ============================================================================

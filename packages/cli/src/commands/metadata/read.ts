@@ -1,14 +1,11 @@
 import { Command } from "commander";
-import { exec } from "child_process";
-import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
+import * as readline from "node:readline";
 import ora, { Ora } from "ora";
 import chalk from "chalk";
 import { DevicePath, DiscId, DiscMetadata, DriveStatus, TrackMetadata, lib } from "@ink/shared";
-
-const execAsync = promisify(exec);
 
 export const metadataRead = (parent: Command) => {
   parent
@@ -72,8 +69,16 @@ const run = async (options: ReadOptions) => {
     // 4. Full Scan (Slow)
     spinner.start('Reading disc metadata (this may take a minute)...');
 
+    // Resolve Device Path to MakeMKV Drive Index
+    const indexResult = await lib.makemkv.findDriveIndex(device);
+    if (indexResult.isErr()) {
+       spinner.fail(`Could not find MakeMKV drive index for ${device}: ${indexResult.error.message}`);
+       return;
+    }
+    const driveIndex = indexResult.value;
+
     // Run MakeMKV info
-    const rawOutput = await runMakeMkvInfo(device);
+    const rawOutput = await lib.makemkv.runInfo(driveIndex);
     const metadata = parseMakeMkvOutput(rawOutput);
 
     if (!metadata) {
@@ -91,7 +96,19 @@ const run = async (options: ReadOptions) => {
     const cachePath = path.join(configDir, `${metadata.discId}.json`);
 
     spinner.info('Saving new metadata.');
+    
+    // Initial save with empty name
+    metadata.userProvidedName = "";
     await saveMetadata(configDir, cachePath, metadata);
+
+    // Prompt user for name
+    spinner.stop();
+    const userTitle = await promptUserForName(metadata.volumeLabel);
+    metadata.userProvidedName = userTitle;
+    spinner.start('Saving final metadata...');
+
+    await saveMetadata(configDir, cachePath, metadata);
+    spinner.succeed(`Saved metadata for ${metadata.userProvidedName}`);
 
     displayMetadata(metadata);
 
@@ -101,11 +118,18 @@ const run = async (options: ReadOptions) => {
   }
 }
 
+async function promptUserForName(defaultName: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-async function runMakeMkvInfo(device: string): Promise<string> {
-  // Increase maxBuffer for large metadata, and set minlength to 0 to capture all tracks
-  const { stdout } = await execAsync(`makemkvcon -r --minlength=0 --cache=1 info ${device}`, { maxBuffer: 1024 * 1024 * 10 });
-  return stdout;
+  return new Promise((resolve) => {
+    rl.question(chalk.yellow(`\nEnter a name for this disc (default: ${defaultName}): `), (answer) => {
+      rl.close();
+      resolve(answer.trim() || defaultName);
+    });
+  });
 }
 
 async function saveMetadata(dir: string, filepath: string, data: DiscMetadata) {
@@ -160,7 +184,7 @@ export function parseMakeMkvOutput(output: string): DiscMetadata | null {
   for (const line of lines) {
     // CINFO:id,code,value
     if (line.startsWith('CINFO:')) {
-      const parts = parseCsvLine(line.substring(6));
+      const parts = lib.makemkv.parseCsvLine(line.substring(6));
       const id = parseInt(parts[0]);
       const value = parts[2];
 
@@ -168,7 +192,7 @@ export function parseMakeMkvOutput(output: string): DiscMetadata | null {
     } 
     // TINFO:trackId,code,extra,value
     else if (line.startsWith('TINFO:')) {
-      const parts = parseCsvLine(line.substring(6));
+      const parts = lib.makemkv.parseCsvLine(line.substring(6));
       const trackId = parseInt(parts[0]);
       const code = parseInt(parts[1]);
       const value = parts[3];
@@ -184,7 +208,7 @@ export function parseMakeMkvOutput(output: string): DiscMetadata | null {
     } 
     // SINFO:trackId,streamId,code,extra,value
     else if (line.startsWith('SINFO:')) {
-      const parts = parseCsvLine(line.substring(6));
+      const parts = lib.makemkv.parseCsvLine(line.substring(6));
       const trackId = parseInt(parts[0]);
       const streamId = parseInt(parts[1]);
       const code = parseInt(parts[2]);

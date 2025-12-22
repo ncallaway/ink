@@ -6,13 +6,15 @@
 
 import { disc } from './disc';
 import { drive } from './drive';
+import { makemkv } from './makemkv';
 import { InkConfig } from './types';
 
 export * from './types';
 
 export const lib = {
   disc,
-  drive
+  drive,
+  makemkv
 }
 
 
