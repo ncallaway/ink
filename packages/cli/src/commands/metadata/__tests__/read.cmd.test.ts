@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 
+// Create mocks first
 const mockExec = mock();
 const mockFs = {
     access: mock(),
@@ -25,13 +26,20 @@ const cpMock = {
 };
 
 const sharedMock = {
-    identifyDisc: (...args: any[]) => mockIdentifyDisc(...args),
+    identifyDisc: (...args: any[]) => {
+        // console.log("MOCK IDENTIFY CALLED");
+        return mockIdentifyDisc(...args);
+    }
 };
 
 // Apply mocks
 mock.module("child_process", () => cpMock);
+mock.module("node:child_process", () => cpMock);
 mock.module("fs/promises", () => mockFs);
+mock.module("node:fs/promises", () => mockFs);
 mock.module("@ink/shared", () => sharedMock);
+mock.module("os", () => ({ homedir: () => "/tmp/fake-home" }));
+mock.module("node:os", () => ({ homedir: () => "/tmp/fake-home" }));
 mock.module("ora", () => ({
     default: () => ({
         start: function() { return this; },
@@ -43,6 +51,11 @@ mock.module("ora", () => ({
         text: ""
     })
 }));
+
+// Static imports after mocks
+import { Command } from "commander";
+import { ok } from "neverthrow";
+import { metadataRead } from "../read";
 
 describe("metadata read command", () => {
     beforeEach(() => {
@@ -59,10 +72,6 @@ describe("metadata read command", () => {
     });
 
     it("should perform a full scan when cache is missing", async () => {
-        const { metadataRead } = await import("../read");
-        const { Command } = await import("commander");
-        const { ok } = await import("neverthrow");
-
         mockIdentifyDisc.mockImplementation(() => Promise.resolve(ok("test-id")));
         mockExec.mockImplementation((cmd: string) => {
             if (cmd.includes("info disc:9999")) return "DRV:0,2,999,1,\"BD-RE\",\"Bluey\",\"/dev/sr0\"";
@@ -72,7 +81,7 @@ describe("metadata read command", () => {
 
         const program = new Command();
         program.exitOverride();
-        program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+        // program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
         metadataRead(program);
         
         await program.parseAsync(["node", "ink", "read"]);
@@ -83,10 +92,6 @@ describe("metadata read command", () => {
     });
 
     it("should skip scan when cache exists", async () => {
-        const { metadataRead } = await import("../read");
-        const { Command } = await import("commander");
-        const { ok } = await import("neverthrow");
-
         mockIdentifyDisc.mockImplementation(() => Promise.resolve(ok("test-id")));
         mockExec.mockImplementation((cmd: string) => {
             if (cmd.includes("info disc:9999")) return "DRV:0,2,999,1,\"BD-RE\",\"Bluey\",\"/dev/sr0\"";
@@ -102,7 +107,7 @@ describe("metadata read command", () => {
 
         const program = new Command();
         program.exitOverride();
-        program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+        // program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
         metadataRead(program);
         
         await program.parseAsync(["node", "ink", "read"]);

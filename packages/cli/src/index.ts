@@ -13,6 +13,7 @@
 
 import { Command } from 'commander';
 import { defineCommand as defineMetadata } from './commands/metadata';
+import { defineInternal } from './commands/internal';
 
 const program = new Command();
 
@@ -188,5 +189,14 @@ program
   .action(() => {
     console.log('TODO: Implement stats');
   });
+
+
+defineInternal(program);
+
+
+program.configureHelp({
+  /* @ts-expect-error: hidden isn't a real variable on Command */
+  visibleCommands: (cmd: Command) => cmd.commands.filter(c => !c.hidden)
+});
 
 program.parse();
