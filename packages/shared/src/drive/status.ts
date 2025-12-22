@@ -6,7 +6,7 @@ import { DriveStatus } from '../types';
 
 const CDROM_DRIVE_STATUS = 0x5326;
 
-export function detectTray(devicePath: string): Result<DriveStatus, Error> {
+export function status(devicePath: string): Result<DriveStatus, Error> {
   const os = platform();
 
   if (os === 'linux') {

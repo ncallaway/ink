@@ -4,9 +4,9 @@ import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import ora from "ora";
+import ora, { Ora } from "ora";
 import chalk from "chalk";
-import { DevicePath, DiscId, DiscMetadata, TrackMetadata, lib } from "@ink/shared";
+import { DevicePath, DiscId, DiscMetadata, DriveStatus, TrackMetadata, lib } from "@ink/shared";
 
 const execAsync = promisify(exec);
 
@@ -28,43 +28,29 @@ const run = async (options: ReadOptions) => {
   const spinner = ora('Checking for disc...').start();
 
   try {
-    let device: DevicePath = options.dev as DevicePath;
-
-    // 1. Detect device if not provided
+    // 1 - select the device to use (may be defined by the options)
+    const device = await selectDevice(spinner, options);
     if (!device) {
-      const deviceResult = await lib.disc.detect();
-      if (deviceResult.isOk()) {
-        device = deviceResult.value;
-      } else {
-        console.warn(`Could not detect a disk: ${deviceResult.error}`);
-      }
+      spinner.fail("No device was detected");
+      process.exit(1);
     }
 
-    if (!device) {
-      spinner.fail('No disc detected in any drive.');
-      process.exitCode = 2;
-      return;
-    }
+    // 2 - wait for the device to be ready 
+    await waitForDevice(spinner, device);
 
-    // 2. Identify Disc (Fast Scan)
+    // 3 - identify the disc
     spinner.text = `Found disc at ${device}. Identifying...`;
-
-    // We need the raw path for identification (e.g., /dev/sr0), not the MakeMKV 'dev:/dev/sr0' syntax
     const idResult = await lib.disc.identify(device);
 
     let discId: DiscId | null = null;
-
     if (idResult.isOk()) {
       discId = idResult.value;
       spinner.succeed(`Identified disc ID: ${discId}`);
     } else {
       spinner.fail(`Disc identification failed: ${idResult.error.message}.`);
-      process.exitCode = 3;
-      return;
+      process.exit(3);
     }
 
-    process.exitCode = 0;
-    return; // todo: tmp for testing
 
     // 3. Check Cache
     const configDir = path.join(os.homedir(), '.ink', 'metadata');
@@ -279,6 +265,78 @@ export function parseMakeMkvOutput(output: string): DiscMetadata | null {
     scannedAt: new Date().toISOString(),
     tracks: Array.from(tracks.values())
   };
+}
+
+const selectDevice = async (spinner: Ora, options: ReadOptions): Promise<DevicePath> => {
+  let device: DevicePath = options.dev as DevicePath;
+
+  // 1. Detect device if not provided
+  if (!device) {
+    const drivesResult = lib.drive.list();
+    if (drivesResult.isErr()) {
+      spinner.fail(`Could not list drives: ${drivesResult.error.message}`);
+      process.exit(101);
+    }
+
+    const drives = drivesResult.value;
+    if (drives.length === 0) {
+      spinner.fail('No optical drives found on this system.');
+      process.exit(1);
+    }
+
+    // Default to the first drive found
+    // TODO: Handle multiple drives selection or parallel processing in future
+    if (drives.length > 0) {
+      device = drives[0] as DevicePath;
+    }
+  }
+
+  return device;
+}
+
+const waitForDevice = async (spinner: Ora, device: DevicePath) => {
+  spinner.text = `Checking status of ${device}...`;
+  let attempts = 0;
+  const maxAttempts = 60; // 60 seconds
+
+  while (attempts < maxAttempts) {
+    const statusResult = lib.drive.status(device);
+
+    if (statusResult.isErr()) {
+      // If we can't even check status (e.g. permission denied), fail
+      spinner.fail(`Failed to check drive status: ${statusResult.error.message}`);
+      process.exit(1);
+    }
+
+    const status = statusResult.value;
+
+    if (status === DriveStatus.DISK_PRESENT) {
+      // Ready!
+      // if the device was ready on the first attempt, stop waiting immediately. If the device *just* became ready, wait
+      // an extra 2 seconds, because we often can't mount the drive the moment it transitions to disk_present
+      if (attempts > 0) {
+        spinner.text = `Drive ${device} is present, waiting 5s to mount it`;
+        await new Promise(r => setTimeout(r, 5000));
+      }
+      break;
+    } else if (status === DriveStatus.READING) {
+      // Drive is busy/spinning up
+      spinner.text = `Drive ${device} is reading... (Attempt ${attempts + 1}/${maxAttempts})`;
+      await new Promise(r => setTimeout(r, 1000));
+      attempts++;
+    } else if (status === DriveStatus.NO_DISK || status === DriveStatus.TRAY_OPEN) {
+      spinner.fail(`Drive ${device} is empty or open.`);
+      process.exit(2);
+    } else {
+      spinner.fail(`Drive ${device} returned unknown status: ${status}`);
+      process.exit(1);
+    }
+  }
+
+  if (attempts >= maxAttempts) {
+    spinner.fail(`Timed out waiting for drive ${device} to become ready.`);
+    process.exit(1);
+  }
 }
 
 function displayMetadata(metadata: DiscMetadata) {

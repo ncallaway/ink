@@ -5,7 +5,7 @@
  */
 
 import { disc } from './disc';
-import * as drive from './drive';
+import { drive } from './drive';
 import { InkConfig } from './types';
 
 export * from './types';
