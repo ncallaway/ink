@@ -6,6 +6,7 @@ import * as readline from "node:readline";
 import ora, { Ora } from "ora";
 import chalk from "chalk";
 import { DevicePath, DiscId, DiscMetadata, DriveStatus, TrackMetadata, lib } from "@ink/shared";
+import { getMetadataDir, displayMetadata } from "./utils";
 
 export const metadataRead = (parent: Command) => {
   parent
@@ -50,7 +51,7 @@ const run = async (options: ReadOptions) => {
 
 
     // 3. Check Cache
-    const configDir = path.join(os.homedir(), '.ink', 'metadata');
+    const configDir = getMetadataDir();
 
     if (discId && options.cache !== false) {
       const cachePath = path.join(configDir, `${discId}.json`);
@@ -363,14 +364,4 @@ const waitForDevice = async (spinner: Ora, device: DevicePath) => {
   }
 }
 
-function displayMetadata(metadata: DiscMetadata) {
-  console.log(chalk.bold(`\nTitle: ${metadata.userProvidedName}`));
-  console.log(chalk.gray(`ID: ${metadata.discId}`));
-  console.log(`Tracks: ${metadata.tracks.length}`);
 
-  // Simple list for now
-  metadata.tracks.forEach(t => {
-    console.log(chalk.white(`  Track ${t.trackNumber}: ${t.duration} (${(t.size / 1024 / 1024).toFixed(0)} MB)`));
-    console.log(chalk.gray(`    Audio: ${t.audio.length} tracks, Subs: ${t.subtitles.length} tracks`));
-  });
-}
