@@ -4,6 +4,7 @@ import * as path from "path";
 import chalk from "chalk";
 import { DiscMetadata } from "@ink/shared";
 import { getMetadataDir } from "./utils";
+import { loadPlan } from "../plan/utils";
 
 interface MetadataItem {
   meta: DiscMetadata;
@@ -15,7 +16,7 @@ export const metadataList = (parent: Command) => {
   parent
     .command('list')
     .description('List all collected metadata')
-    .option('--status <status>', 'Filter by status (e.g. unplanned)')
+    .option('--status <status>', 'Filter by status (e.g. unplanned, draft, pending)')
     .option('--order <field>', 'Sort order (label, status)', 'label')
     .action(async (options: { status?: string, order: string }) => {
         const dir = getMetadataDir();
@@ -42,8 +43,9 @@ export const metadataList = (parent: Command) => {
                 const content = await fs.readFile(path.join(dir, file), 'utf-8');
                 const meta = JSON.parse(content) as DiscMetadata;
                 const title = meta.userProvidedName || meta.volumeLabel || "Unknown";
-                // Hardcoded status for now as requested
-                const status = "unplanned";
+                
+                const plan = await loadPlan(meta.discId);
+                const status = plan ? plan.status : "unplanned";
 
                 items.push({ meta, title, status });
             } catch (e) {
@@ -74,11 +76,16 @@ export const metadataList = (parent: Command) => {
         
         // Display
         for (const item of filtered) {
+            let statusColor = chalk.gray;
+            if (item.status === 'completed') statusColor = chalk.green;
+            else if (item.status === 'pending') statusColor = chalk.yellow;
+            else if (item.status === 'draft') statusColor = chalk.blue;
+
              // Format: Title (bold/white) ID (dimmed) Status
             console.log(
                 chalk.bold.white(item.title) + " " + 
                 chalk.gray(item.meta.discId) + " " + 
-                item.status
+                statusColor(item.status)
             );
         }
     });

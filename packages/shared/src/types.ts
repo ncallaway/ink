@@ -71,7 +71,11 @@ export namespace MakeMKV {
 export interface BackupPlan {
   discId: string;
   discLabel: string;
+  title: string;
   createdAt: string;
+  updatedAt: string;
+  status: 'draft' | 'pending' | 'completed';
+  type: 'movie' | 'tv';
   tracks: TrackPlan[];
 }
 

@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as os from "os";
+import * as fs from "fs/promises";
 import chalk from "chalk";
 import { DiscMetadata } from "@ink/shared";
 
@@ -7,11 +8,21 @@ export const getMetadataDir = () => path.join(os.homedir(), '.ink', 'metadata');
 
 export const getMetadataPath = (discId: string) => path.join(getMetadataDir(), `${discId}.json`);
 
+export async function loadMetadata(discId: string): Promise<DiscMetadata | null> {
+    try {
+        const content = await fs.readFile(getMetadataPath(discId), 'utf-8');
+        return JSON.parse(content) as DiscMetadata;
+    } catch {
+        return null;
+    }
+}
+
 export function displayMetadata(metadata: DiscMetadata) {
   // Use userProvidedName if available, else volumeLabel
   const title = metadata.userProvidedName || metadata.volumeLabel || "Unknown Title";
   
-  console.log(chalk.bold(`\nTitle: ${title}`));
+  console.log(chalk.bold(`
+Title: ${title}`));
   console.log(chalk.gray(`ID: ${metadata.discId}`));
   console.log(`Tracks: ${metadata.tracks.length}`);
 
