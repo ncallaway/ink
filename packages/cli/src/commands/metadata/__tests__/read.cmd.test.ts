@@ -1,43 +1,41 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { Command } from "commander";
+import { ok } from "neverthrow";
+import { createMockMetadata } from "../../__tests__/fixtures";
 
-// Create mocks first
-const mockExec = mock();
 const mockFs = {
     access: mock(),
     writeFile: mock(),
     readFile: mock(),
     mkdir: mock(() => Promise.resolve()),
 };
-const mockIdentifyDisc = mock();
 
-// Mock factories
-const cpMock = {
-    exec: (cmd: string, opts: any, cb: any) => {
-        const callback = typeof opts === 'function' ? opts : cb;
-        const res = mockExec(cmd);
-        if (res instanceof Promise) {
-            res.then(out => callback(null, { stdout: String(out), stderr: "" }))
-               .catch(err => callback(err, { stdout: "", stderr: "" }));
-        } else {
-            setImmediate(() => callback(null, { stdout: String(res), stderr: "" }));
-        }
-        return { unref: () => {}, kill: () => {} };
+const mockLib = {
+    drive: {
+        list: mock(() => ok(["/dev/sr0"])),
+        status: mock(() => ok(4)), // DISK_PRESENT
+    },
+    disc: {
+        identify: mock(() => Promise.resolve(ok("test-disc-id"))),
+    },
+    makemkv: {
+        findDriveIndex: mock(() => Promise.resolve(ok(0))),
+        runInfo: mock((_idx: number, cb?: any) => {
+            if (cb) cb({ message: "Mocking...", percentage: 50 });
+            return Promise.resolve(`CINFO:32,0,"TEST_VOL"
+TINFO:0,9,0,"0:30:00"
+TINFO:0,11,0,"1000000"
+`);
+        }),
+        parseCsvLine: mock((line: string) => line.split(',').map(s => s.replace(/"/g, '')))
     }
 };
 
-const sharedMock = {
-    identifyDisc: (...args: any[]) => {
-        // console.log("MOCK IDENTIFY CALLED");
-        return mockIdentifyDisc(...args);
-    }
-};
-
-// Apply mocks
-mock.module("child_process", () => cpMock);
-mock.module("node:child_process", () => cpMock);
 mock.module("fs/promises", () => mockFs);
 mock.module("node:fs/promises", () => mockFs);
-mock.module("@ink/shared", () => sharedMock);
+mock.module("@ink/shared", () => ({
+    lib: mockLib
+}));
 mock.module("os", () => ({ homedir: () => "/tmp/fake-home" }));
 mock.module("node:os", () => ({ homedir: () => "/tmp/fake-home" }));
 mock.module("ora", () => ({
@@ -52,68 +50,50 @@ mock.module("ora", () => ({
     })
 }));
 
-// Static imports after mocks
-import { Command } from "commander";
-import { ok } from "neverthrow";
+// Mock readline
+mock.module("node:readline", () => ({
+    createInterface: () => ({
+        question: (_q: string, cb: (a: string) => void) => cb("Test Name"),
+        close: () => {}
+    })
+}));
+
 import { metadataRead } from "../read";
 
 describe("metadata read command", () => {
     beforeEach(() => {
-        mockExec.mockClear();
         mockFs.access.mockClear();
         mockFs.writeFile.mockClear();
         mockFs.readFile.mockClear();
-        mockIdentifyDisc.mockClear();
-        
-        mockExec.mockImplementation(() => "");
-        mockFs.access.mockImplementation(() => Promise.reject(new Error("ENOENT")));
-        mockFs.writeFile.mockImplementation(() => Promise.resolve());
-        mockFs.readFile.mockImplementation(() => Promise.resolve(""));
+        mockLib.disc.identify.mockClear();
+        mockLib.makemkv.runInfo.mockClear();
     });
 
     it("should perform a full scan when cache is missing", async () => {
-        mockIdentifyDisc.mockImplementation(() => Promise.resolve(ok("test-id")));
-        mockExec.mockImplementation((cmd: string) => {
-            if (cmd.includes("info disc:9999")) return "DRV:0,2,999,1,\"BD-RE\",\"Bluey\",\"/dev/sr0\"";
-            if (cmd.includes("info dev:/dev/sr0")) return "CINFO:2,0,\"Bluey\"\nTINFO:0,9,0,\"0:07:20\"";
-            return "";
-        });
-
+        mockFs.access.mockRejectedValue(new Error("ENOENT"));
+        
         const program = new Command();
         program.exitOverride();
-        // program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
         metadataRead(program);
         
         await program.parseAsync(["node", "ink", "read"]);
 
-        expect(mockIdentifyDisc).toHaveBeenCalled();
-        expect(mockExec).toHaveBeenCalled();
+        expect(mockLib.disc.identify).toHaveBeenCalled();
+        expect(mockLib.makemkv.runInfo).toHaveBeenCalled();
         expect(mockFs.writeFile).toHaveBeenCalled();
     });
 
     it("should skip scan when cache exists", async () => {
-        mockIdentifyDisc.mockImplementation(() => Promise.resolve(ok("test-id")));
-        mockExec.mockImplementation((cmd: string) => {
-            if (cmd.includes("info disc:9999")) return "DRV:0,2,999,1,\"BD-RE\",\"Bluey\",\"/dev/sr0\"";
-            return "";
-        });
-        
-        mockFs.access.mockImplementation(() => Promise.resolve(undefined));
-        mockFs.readFile.mockImplementation(() => Promise.resolve(JSON.stringify({
-            discId: "test-id",
-            volumeLabel: "Cached",
-            tracks: []
-        })));
+        mockFs.access.mockResolvedValue(undefined);
+        mockFs.readFile.mockResolvedValue(JSON.stringify(createMockMetadata({ discId: "test-disc-id" })));
 
         const program = new Command();
         program.exitOverride();
-        // program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
         metadataRead(program);
         
         await program.parseAsync(["node", "ink", "read"]);
 
         expect(mockFs.readFile).toHaveBeenCalled();
-        const calls = mockExec.mock.calls.map(c => c[0]);
-        expect(calls.some(c => c.includes("dev:/dev/sr0"))).toBe(false);
+        expect(mockLib.makemkv.runInfo).not.toHaveBeenCalled();
     });
 });

@@ -15,8 +15,6 @@ import {
     writeStatus
 } from "./utils";
 
-const execAsync = promisify(exec);
-
 export const runCopy = (parent: Command) => {
   parent
     .command('copy')
@@ -25,6 +23,7 @@ export const runCopy = (parent: Command) => {
 }
 
 async function run() {
+    const execAsync = promisify(exec);
     const stagingDir = getStagingDir();
     const smbTarget = process.env.SMB_TARGET || 'smb://192.168.1.200/storage/media';
     const smbUser = process.env.SMB_USER || 'user';
