@@ -6,6 +6,7 @@ import ora from "ora";
 import { lib } from "@ink/shared";
 import { loadPlan } from "../plan/utils";
 import { loadMetadata } from "../metadata/utils";
+import { formatDuration, calculateEta } from "./time";
 import { 
     ensureDirs, 
     getExtractedPath, 
@@ -19,12 +20,12 @@ import {
 
 export const runTranscode = (parent: Command) => {
   parent
-    .command('transcode')
+    .command('transcode [disc-id]')
     .description('Process transcoding queue for extracted tracks')
     .action(run);
 }
 
-async function run() {
+async function run(targetDiscId?: string) {
     const stagingDir = getStagingDir();
     try {
         await fs.access(stagingDir);
@@ -33,7 +34,16 @@ async function run() {
         return;
     }
 
-    const discDirs = await fs.readdir(stagingDir);
+    let discDirs = await fs.readdir(stagingDir);
+
+    if (targetDiscId) {
+        if (!discDirs.includes(targetDiscId)) {
+             console.log(chalk.red(`Disc ID ${targetDiscId} not found in staging.`));
+             return;
+        }
+        discDirs = [targetDiscId];
+    }
+
     let processedAny = false;
 
     for (const discId of discDirs) {
@@ -68,18 +78,42 @@ async function run() {
                 }
 
                 console.log(chalk.blue(`\nTranscoding Track ${track.trackNumber} (${track.name})...`));
-                const transcodeSpinner = ora('Initializing ffmpeg...').start();
+                const transcodeSpinner = ora('Initializing...').start();
                 const start = Date.now();
+
+                // 1. Detect Crop
+                transcodeSpinner.text = 'Detecting auto-crop...';
+                const cropResult = await lib.ffmpeg.detectCrop(inputPath);
+                const crop = cropResult.isOk() ? cropResult.value : null;
+
+                if (crop) {
+                    transcodeSpinner.info(`Auto-crop detected: ${crop}`);
+                }
+
+                // 2. Transcode
+                transcodeSpinner.start('Initializing ffmpeg...');
 
                 const result = await lib.ffmpeg.transcode(
                     inputPath, 
                     outputPath, 
                     durationSeconds,
-                    track.transcode,
+                    {
+                        codec: track.transcode?.codec || 'libx265',
+                        preset: track.transcode?.preset || 'slow',
+                        crf: track.transcode?.crf || 20,
+                        audio: track.transcode?.audio || [],
+                        subtitles: track.transcode?.subtitles || [],
+                        crop: crop || undefined,
+                        deinterlace: true // Always deinterlace for now (safe for progressive too via yadif)
+                    },
                     (progress) => {
                         let text = "";
+                        const elapsed = Date.now() - start;
+                        
                         if (progress.percentage !== undefined) {
                             text += `${progress.percentage.toFixed(1)}% `;
+                            const eta = calculateEta(start, progress.percentage);
+                            text += `[Elapsed: ${formatDuration(elapsed)} ETA: ${eta}] `;
                         }
                         if (progress.time) {
                             text += `(${progress.time}) `;

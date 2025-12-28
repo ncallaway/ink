@@ -9,6 +9,7 @@ import {
     getStagingDir,
     getEncodedPath, 
     getEncodedStatusPath, 
+    getReviewedStatusPath,
     getCopiedStatusPath, 
     hasStatus,
     writeStatus
@@ -49,6 +50,7 @@ async function run() {
 
         for (const track of plan.tracks) {
             const encodedStatus = getEncodedStatusPath(discId, track.trackNumber);
+            const reviewedStatus = getReviewedStatusPath(discId, track.trackNumber);
             const copiedStatus = getCopiedStatusPath(discId, track.trackNumber);
 
             if (await hasStatus(encodedStatus) && !(await hasStatus(copiedStatus))) {
@@ -57,30 +59,31 @@ async function run() {
                 const localPath = getEncodedPath(discId, track.trackNumber);
                 
                 // Determine remote path
-                // If plan directory is absolute, try to make it relative or use plan title
-                // For this demo, let's assume we want "Type/Title/Filename"
-                // e.g. "Movies/Home Alone/Home Alone.mkv"
-                
-                // Use the suffix provided in the plan output directory if it looks relative, 
-                // otherwise fallback to plan logic.
                 let suffix = track.output.directory;
                 if (path.isAbsolute(suffix)) {
-                    // Fallback logic: Use plan type + title
-                    const typeDir = plan.type === 'tv' ? 'TV Shows' : 'Movies';
+                    const typeDir = plan.type === 'tv' ? 'series' : 'movies';
                     suffix = path.join(typeDir, plan.title);
                 }
 
                 let remoteFilename = track.output.filename;
+                
+                // CHECK FOR RESOLVED NAME
+                if (await hasStatus(reviewedStatus)) {
+                    try {
+                        const reviewedContent = await fs.readFile(reviewedStatus, 'utf-8');
+                        const reviewedData = JSON.parse(reviewedContent);
+                        if (reviewedData.finalName) {
+                            remoteFilename = reviewedData.finalName;
+                        }
+                    } catch {}
+                }
+
                 // Ensure extension matches source (usually .mkv) if missing
                 const sourceExt = path.extname(localPath);
                 if (!path.extname(remoteFilename)) {
                     remoteFilename += sourceExt;
                 }
 
-                // SMB paths use backslashes usually? smbclient 'put' uses forward slashes in the path arg typically
-                // but remote path on server is relative to share.
-                // Remote: prefixPath + / + suffix + / + filename
-                // Remove leading slashes to be safe for join
                 const cleanPrefix = prefixPath.replace(/^\//, '').replace(/\/$/, '');
                 const cleanSuffix = suffix.replace(/^\//, ''); // relative
                 
@@ -88,12 +91,12 @@ async function run() {
                 const remotePath = path.join(cleanPrefix, cleanSuffix, remoteFilename).replace(/\\/g, '/');
 
                 console.log(chalk.blue(`\n[Track ${track.trackNumber}] ${track.name}`));
-                const spinner = ora(`Copying to ${smbTarget}/${cleanSuffix}/${remoteFilename}...`).start();
                 
-                // smbclient //host/share -U user%pass -c 'mkdir "dir"; put "local" "remote"'
-                // mkdir might fail if exists, but we hope put succeeds.
-                // We use -D to set directory? No, -c is better.
-                const cmd = `smbclient '//${host}/${share}' -U '${smbUser}%${smbPass}' -c 'mkdir "${remoteDir}"; put "${localPath}" "${remotePath}"'`;
+                // Escape single quotes for the shell command string
+                const smbCommandString = `mkdir "${remoteDir}"; put "${localPath}" "${remotePath}"`.replace(/'/g, "'\\''");
+                const cmd = `smbclient '//${host}/${share}' -U '${smbUser}%${smbPass}' -c '${smbCommandString}'`;
+                
+                const spinner = ora(`Copying to ${smbTarget}/${cleanSuffix}/${remoteFilename}...`).start();
                 
                 try {
                     await execAsync(cmd);
@@ -108,10 +111,6 @@ async function run() {
                     });
 
                 } catch (e: any) {
-                    // If failed, try without mkdir in case that was the error (though smbclient usually processes commands sequentially)
-                    // If mkdir failed, put might still work if dir exists?
-                    // Actually, if mkdir fails, smbclient might exit.
-                    // We can try `put` alone if the first failed.
                     spinner.text = "Retrying copy without mkdir...";
                     try {
                          const cmdRetry = `smbclient '//${host}/${share}' -U '${smbUser}%${smbPass}' -c 'put "${localPath}" "${remotePath}"'`;
@@ -126,7 +125,6 @@ async function run() {
                         });
                     } catch (retryErr: any) {
                         spinner.fail(`Copy failed: ${retryErr.message}`);
-                        // console.error(retryErr); // Debug
                     }
                 }
             }

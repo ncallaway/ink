@@ -50,6 +50,19 @@ bun run build
 
 ### 3. Development
 
+To make the `ink` command available globally in your terminal:
+
+```bash
+cd packages/cli
+bun link
+```
+
+To watch both `shared` and `cli` packages for changes (automatic rebuilds):
+
+```bash
+bun run watch
+```
+
 To work on individual packages:
 
 ```bash
@@ -57,9 +70,9 @@ To work on individual packages:
 cd packages/daemon
 bun run dev
 
-# Run CLI in development mode
+# Run CLI in development mode (direct source execution)
 cd packages/cli
-bun run dev
+bun run go [command]
 ```
 
 ## Package Overview

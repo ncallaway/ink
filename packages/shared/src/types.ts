@@ -73,11 +73,27 @@ export interface BackupPlan {
   discLabel: string;
   title: string;
   imdbId?: string;
+  tvShow?: {
+    imdbId: string;
+    tvMazeId?: number;
+    name: string;
+    season: number;
+    disc: number;
+  };
+  // For compilation discs, we store the pool of episodes to match against later
+  candidates?: CandidateEpisode[]; 
   createdAt: string;
   updatedAt: string;
-  status: 'draft' | 'pending' | 'completed';
+  status: 'draft' | 'pending' | 'review' | 'approved' | 'completed';
   type: 'movie' | 'tv';
   tracks: TrackPlan[];
+}
+
+export interface CandidateEpisode {
+  id: number;
+  season: number;
+  number: number;
+  name: string;
 }
 
 export interface TrackPlan {
@@ -94,6 +110,9 @@ export interface TranscodeSettings {
   crf: number;
   audio: string[];
   subtitles: string[];
+  crop?: string;
+  deinterlace?: boolean;
+  isAnimated?: boolean;
 }
 
 export interface OutputSettings {

@@ -23,7 +23,7 @@ export async function loadPlan(discId: string): Promise<BackupPlan | null> {
     }
 }
 
-import { getTrackStatus } from "../run/utils";
+import { getTrackStatus, getReviewedStatusPath, hasStatus } from "../run/utils";
 
 // ... existing imports ...
 
@@ -39,12 +39,26 @@ Plan: ${plan.title}`));
   for (const t of plan.tracks) {
     const status = await getTrackStatus(plan.discId, t.trackNumber);
     let statusStr = "";
+    let resolvedName = "";
+
+    // Check for resolved name
+    const reviewedPath = getReviewedStatusPath(plan.discId, t.trackNumber);
+    if (await hasStatus(reviewedPath)) {
+        try {
+            const data = JSON.parse(await fs.readFile(reviewedPath, 'utf-8'));
+            if (data.finalName) {
+                resolvedName = chalk.green(` -> ${data.finalName}`);
+            }
+        } catch {}
+    }
+
     if (status === 'completed') statusStr = chalk.green(" [Completed]");
+    else if (status === 'reviewed') statusStr = chalk.green(" [Reviewed]");
     else if (status === 'encoded') statusStr = chalk.cyan(" [Encoded]");
     else if (status === 'extracted') statusStr = chalk.blue(" [Extracted]");
     else statusStr = chalk.gray(" [Pending]");
 
-    console.log(chalk.white(`  Track ${t.trackNumber} -> ${t.output.filename}`) + statusStr);
+    console.log(chalk.white(`  Track ${t.trackNumber} : ${t.output.filename}`) + resolvedName + statusStr);
     console.log(chalk.gray(`    Target Dir: ${t.output.directory}`));
     if (t.transcode) {
         console.log(chalk.gray(`    Transcode: ${t.transcode.codec} (${t.transcode.preset}, CRF ${t.transcode.crf})`));

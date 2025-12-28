@@ -5,6 +5,7 @@ import chalk from "chalk";
 import ora from "ora";
 import { lib, DriveStatus, DevicePath } from "@ink/shared";
 import { loadPlan } from "../plan/utils";
+import { formatDuration, calculateEta } from "./time";
 import { ensureDirs, getExtractedDir, getExtractedPath, getExtractedStatusPath, hasStatus, writeStatus } from "./utils";
 
 export const runExtract = (parent: Command) => {
@@ -96,10 +97,6 @@ async function run() {
                 if (!stage) return;
                 
                 if (ignoredStages.includes(stage)) {
-                    // Update text but don't persist/notify stage change for ignored ones
-                    // actually, maybe we just ignore them entirely to keep the spinner on the previous "real" task or "Initializing..."
-                    // If we ignore them, we might be stuck on "Initializing..." for a while.
-                    // Let's show them but not persist them?
                     extractSpinner.text = `${stage}...`;
                     return;
                 }
@@ -116,16 +113,19 @@ async function run() {
                 }
                 
                 if (progress.percentage !== undefined) {
-                    extractSpinner.text = `${stage} ${progress.percentage.toFixed(1)}%`;
+                    const elapsed = Date.now() - start;
+                    const eta = calculateEta(start, progress.percentage);
+                    extractSpinner.text = `${stage} ${progress.percentage.toFixed(1)}% [Elapsed: ${formatDuration(elapsed)} ETA: ${eta}]`;
                 }
             });
             
             if (result.isErr()) {
                 extractSpinner.fail(`Extraction failed: ${result.error.message}`);
+                console.error(chalk.red(`\nDetailed error for Track ${track.trackNumber}:`));
+                console.error(result.error.message);
                 // Cleanup
                 await fs.rm(tempDir, { recursive: true, force: true });
-                continue; // Try next track? Or abort? Abort for now to be safe.
-                // Actually, continue is better for resilience.
+                continue;
             }
 
             extractSpinner.succeed('Extraction complete.');

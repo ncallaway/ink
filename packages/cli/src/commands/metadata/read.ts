@@ -79,7 +79,13 @@ const run = async (options: ReadOptions) => {
     const driveIndex = indexResult.value;
 
     // Run MakeMKV info
-    const rawOutput = await lib.makemkv.runInfo(driveIndex);
+    const rawOutput = await lib.makemkv.runInfo(driveIndex, (progress) => {
+      let text = progress.message || "Scanning...";
+      if (progress.percentage !== undefined) {
+        text += ` ${progress.percentage.toFixed(1)}%`;
+      }
+      spinner.text = text;
+    });
     const metadata = parseMakeMkvOutput(rawOutput);
 
     if (!metadata) {

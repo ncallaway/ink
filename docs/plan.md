@@ -79,26 +79,48 @@ The first phase allows users to quickly build a library of disc metadata without
 
 ### Phase 2: Plan Creation
 
-Once metadata is collected, users can create detailed backup plans at their leisure, without needing physical discs.
+Once metadata is collected, users create backup plans. For TV Shows, this process is specialized to handle multi-disc seasons.
 
-1. User browses collected metadata with `ink metadata list`
-2. User exports metadata as plan template: `ink plan export {disc-id} > plan.json`
-3. User edits plan file to specify:
-   - Which tracks to backup
-   - Transcoding settings (codec, quality, preset)
-   - Output filenames
-   - Destination directories
-   - Audio/subtitle track selection
-4. User imports completed plan: `ink plan import plan.json`
-5. Plan saved to `~/.ink/plans/{disc-hash}.json`
+**Standard Season Workflow:**
+1.  User selects "TV Show" -> "Standard Season".
+2.  User searches for Show (via IMDB ID).
+3.  User enters **Season Number** and **Disc Number**.
+4.  Plan is saved with this structural info (`imdbId`, `season`, `disc`).
+5.  *Note:* Exact episode mapping is NOT required at this stage.
 
-**Benefits:**
-- Work offline without physical discs
-- Carefully configure each backup
-- Copy/modify plans for similar discs
-- Review and validate before execution
+**Compilation Workflow (e.g., "Best of"):**
+1.  User selects "TV Show" -> "Compilation".
+2.  User searches for Show.
+3.  User manually maps specific tracks to specific episodes using a search interface.
 
 ### Phase 3: Automatic Execution
+
+Execution is decoupled into processing and finalization to allow out-of-order processing.
+
+1.  **Extraction**: Rips tracks to `staging/[disc-id]/extracted/tXX.mkv`.
+2.  **Transcode**: Encodes to `staging/[disc-id]/encoded/tXX.mkv`.
+    *   Files remain named by track number.
+    *   Processing can happen regardless of whether previous discs in the season are known.
+
+### Phase 4: Verification & Finalization (New)
+
+A new **Verification Queue** manages the final move to the library.
+
+1.  **Dependency Check**:
+    *   System checks if all previous discs in the season have plans (to calculate episode offsets).
+    *   If Disc 1 is missing, Disc 2 sits in "Blocked" state (files are ready, just waiting for name).
+2.  **Episode Mapping**:
+    *   Once the chain is complete, system calculates episode numbers (e.g., Disc 2 Track 1 = Episode 5).
+    *   System uses TVMaze API (lookup via IMDB ID) to validate counts.
+3.  **User Review (`ink verify`)**:
+    *   User is presented with the calculated mapping.
+    *   User can spot-check video files.
+    *   User approves the batch.
+4.  **Finalize**:
+    *   Files renamed to: `series/[Show Name] ([Year])/[Show Name] - S[S]E[E].mkv`
+    *   Moved to final destination.
+
+## Pipelined Processing
 
 When a disc with an associated plan is inserted, the daemon automatically executes the backup process through multiple pipelined stages.
 
