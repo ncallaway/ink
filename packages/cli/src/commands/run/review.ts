@@ -46,7 +46,7 @@ async function run() {
         if (discId.startsWith('.')) continue;
 
         const plan = await loadPlan(discId);
-        if (!plan) {
+        if (!plan || plan.type === 'movie') {
           continue;
         }
 

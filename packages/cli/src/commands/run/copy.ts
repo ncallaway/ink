@@ -53,7 +53,20 @@ async function run() {
             const reviewedStatus = getReviewedStatusPath(discId, track.trackNumber);
             const copiedStatus = getCopiedStatusPath(discId, track.trackNumber);
 
-            if (await hasStatus(encodedStatus) && !(await hasStatus(copiedStatus))) {
+            // Logic: 
+            // 1. Must be encoded.
+            // 2. If TV, must be reviewed.
+            // 3. Must not be already copied.
+            const isEncoded = await hasStatus(encodedStatus);
+            const isReviewed = await hasStatus(reviewedStatus);
+            const isCopied = await hasStatus(copiedStatus);
+
+            if (isEncoded && !isCopied) {
+                // TV shows REQUIRE review. Movies do not.
+                if (plan.type === 'tv' && !isReviewed) {
+                    continue; 
+                }
+
                 processedAny = true;
                 
                 const localPath = getEncodedPath(discId, track.trackNumber);
