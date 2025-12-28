@@ -116,7 +116,7 @@ async function run(options: { status?: string, type?: string, order: string }) {
             statusColor(status.padEnd(12)) + 
             chalk.white(type.padEnd(8)) + 
             chalk.white(tracks.padEnd(8)) + 
-            chalk.bold.white(plan.title) + " " +
+            chalk.bold.white(plan.discLabel) + " " +
             chalk.gray(`(${plan.discId})`)
         );
     }

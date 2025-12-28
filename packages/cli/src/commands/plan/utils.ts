@@ -32,18 +32,18 @@ export async function displayPlan(plan: BackupPlan) {
 Plan: ${plan.title}`));
   console.log(chalk.gray(`File: ${getPlanPath(plan.discId)}`));
   console.log(chalk.gray(`Disc ID: ${plan.discId}`));
-  console.log(chalk.gray(`Status: ${plan.status}`)); // This is the stored status, maybe we should update it dynamically too?
+  console.log(chalk.gray(`Status: ${plan.status}`)); 
   console.log(chalk.gray(`Type: ${plan.type}`));
   console.log(`Planned Tracks: ${plan.tracks.length}`);
 
   for (const t of plan.tracks) {
     const status = await getTrackStatus(plan.discId, t.trackNumber);
-    let statusStr = "";
     let resolvedName = "";
 
     // Check for resolved name
     const reviewedPath = getReviewedStatusPath(plan.discId, t.trackNumber);
-    if (await hasStatus(reviewedPath)) {
+    const hasReviewedFile = await hasStatus(reviewedPath);
+    if (hasReviewedFile) {
         try {
             const data = JSON.parse(await fs.readFile(reviewedPath, 'utf-8'));
             if (data.finalName) {
@@ -52,18 +52,39 @@ Plan: ${plan.title}`));
         } catch {}
     }
 
-    if (status === 'completed') statusStr = chalk.green(" [Completed]");
-    else if (status === 'reviewed') statusStr = chalk.green(" [Reviewed]");
-    else if (status === 'encoded') statusStr = chalk.cyan(" [Encoded]");
-    else if (status === 'extracted') statusStr = chalk.blue(" [Extracted]");
-    else statusStr = chalk.gray(" [Pending]");
+    // Stage Status Logic
+    const stages = [
+        { name: 'EXTRACT', eligible: t.extract, done: status === 'extracted' || status === 'encoded' || status === 'reviewed' || status === 'completed', ready: status === 'pending' },
+        { name: 'TRANSCODE', eligible: t.extract, done: status === 'encoded' || status === 'reviewed' || status === 'completed', ready: status === 'extracted' },
+        { name: 'REVIEW', eligible: plan.type === 'tv', done: status === 'reviewed' || status === 'completed', ready: (status === 'extracted' || status === 'encoded') && !hasReviewedFile },
+        { name: 'COPY', eligible: t.extract, done: status === 'completed', ready: (status === 'encoded' || status === 'reviewed') && (plan.type === 'movie' || hasReviewedFile) }
+    ];
 
-    console.log(chalk.white(`  Track ${t.trackNumber} : ${t.output.filename}`) + resolvedName + statusStr);
-    console.log(chalk.gray(`    Target Dir: ${t.output.directory}`));
-    if (t.transcode) {
-        console.log(chalk.gray(`    Transcode: ${t.transcode.codec} (${t.transcode.preset}, CRF ${t.transcode.crf})`));
+    const stageDisplay = stages.map(s => {
+        if (!s.eligible) return chalk.dim(s.name);
+        if (s.done) return chalk.green(s.name);
+        if (s.ready) return chalk.cyan(s.name); // Using cyan for "light green/ready"
+        return chalk.white(s.name);
+    }).join(chalk.gray(" | "));
+
+    // Banner Logic
+    let banner = "";
+    const eligibleStages = stages.filter(s => s.eligible);
+    const completedStages = eligibleStages.filter(s => s.done);
+    
+    if (completedStages.length === eligibleStages.length) {
+        banner = chalk.bgGreen.black(" COMPLETE ");
+    } else if (completedStages.length > 0) {
+        banner = chalk.bgCyan.black(" IN PROGRESS ");
     } else {
-        console.log(chalk.gray(`    Transcode: (Default)`));
+        banner = chalk.bgWhite.black(" UNSTARTED ");
+    }
+
+    console.log(`\n${banner} ${chalk.white(`Track ${t.trackNumber} : ${t.output.filename}`)}${resolvedName}`);
+    console.log(`  ${stageDisplay}`);
+    console.log(chalk.gray(`  Target Dir: ${t.output.directory}`));
+    if (t.transcode) {
+        console.log(chalk.gray(`  Transcode: ${t.transcode.codec} (${t.transcode.preset}, CRF ${t.transcode.crf})`));
     }
   }
 }
