@@ -37,7 +37,7 @@ TCOUNT:0`;
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
-      expect(result.value).toBe("/dev/sr0");
+      expect(result.value).toBe("/dev/sr0" as any);
     }
   });
 

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { DevicePath, lib } from "@ink/shared";
+import { DevicePath, lib, DriveStatus } from "@ink/shared";
 import { makemkv } from "../../../shared/src/makemkv";
 
 export const defineInternal = (program: Command) => {
@@ -41,9 +41,9 @@ export const defineInternal = (program: Command) => {
     .command('drive-status')
     .requiredOption('--dev <device>', 'Specify the device to check status for')
     .action((options: { dev: string }) => {
-      const result = lib.drive.detectTray(options.dev);
+      const result = lib.drive.status(options.dev);
       if (result.isOk()) {
-        console.log(`Drive Status (OK): ${result.value} (${lib.drive.DriveStatus[result.value]})`);
+        console.log(`Drive Status (OK): ${result.value} (${DriveStatus[result.value]})`);
       } else {
         console.error("Drive Status (ERR): ", result.error);
       }

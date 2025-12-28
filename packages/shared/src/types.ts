@@ -72,6 +72,7 @@ export interface BackupPlan {
   discId: string;
   discLabel: string;
   title: string;
+  imdbId?: string;
   createdAt: string;
   updatedAt: string;
   status: 'draft' | 'pending' | 'completed';

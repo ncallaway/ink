@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { listDrives } from "../list";
+import { list as listDrives } from "../list";
 import { platform } from "os";
 
 // Mocking fs.readdirSync for Linux tests

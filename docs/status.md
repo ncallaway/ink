@@ -38,10 +38,25 @@
   - Plan file schema finalization.
   - Filtering logic (e.g., min duration) during plan creation.
 - **Execution Pipeline**:
-  - Extraction implementation (`makemkvcon mkv`).
-  - Transcoding implementation (`ffmpeg`).
-  - Pipeline orchestration (extract -> transcode).
-- **CLI Commands**:
+  - `run extract` command implemented with:
+    - Automatic drive scanning and plan lookup.
+    - Idempotent track extraction to staging.
+    - Robust `makemkvcon` robot mode parsing for progress and errors.
+    - Detailed spinner with stage tracking (e.g. "Saving to MKV file").
+  - `run transcode` command implemented with:
+    - Automatic staging scan for extracted tracks.
+    - FFmpeg integration (H.265/AAC default).
+    - Real-time progress parsing (FPS, time, speed, percentage).
+    - Status tracking via marker files.
+  - **Plan Status**:
+    - `plan list` and `plan show` now dynamically calculate status (`[Extracted]`, `[Encoded]`, `[Completed]`) based on the filesystem state.
+
+## Remaining
+- **Execution Pipeline**:
+- **Execution Pipeline**:
+  - `run copy` (Finalize): Move files to destination.
+  - Parallel transcoding support (optimization).
+- **Daemon Implementation**:
   - `ink scan` (wrapper for read).
   - `ink status`.
   - `ink jobs`.

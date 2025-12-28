@@ -14,6 +14,7 @@
 import { Command } from 'commander';
 import { defineCommand as defineMetadata } from './commands/metadata';
 import { defineCommand as definePlan } from './commands/plan';
+import { defineCommand as defineRun } from './commands/run';
 import { defineInternal } from './commands/internal';
 
 const program = new Command();
@@ -59,6 +60,7 @@ daemon
 
 defineMetadata(program);
 definePlan(program);
+defineRun(program);
 
 // Scan command (top-level)
 program

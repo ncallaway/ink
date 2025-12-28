@@ -53,42 +53,94 @@ async function run(discId?: string) {
   }) as 'movie' | 'tv';
   await savePlan(plan);
 
-  // 2. Duration Cut-off
-  const cutoffMinutes = await selectDurationCutoff(metadata, plan.type);
-  
-  // 3. Destination Path
-  // TODO: Load default from config
-  const defaultDest = path.join(process.cwd(), 'output', plan.title.replace(/[^a-z0-9]/gi, '_'));
-  const destination = await input({
-    message: "Enter the destination directory:",
-    default: defaultDest
+  // 2. Identify Title & Year
+  let title = await input({
+    message: "Enter the title:",
+    default: plan.title
   });
 
-  // 4. Individual File Selection
+  let year = "";
+
+  console.log(chalk.blue("Searching metadata..."));
+  const results = await searchImdb(title);
+  
+  if (results.length > 0) {
+    const choices = results.map(r => ({
+      name: `${r.title} (${r.year}) [${r.type}]`,
+      value: r
+    }));
+    choices.push({ name: "Enter manually...", value: null as any }); // Cast to any to allow null
+
+    const selected = await select({
+      message: "Select the correct match:",
+      choices: choices
+    });
+
+    if (selected) {
+      title = selected.title;
+      year = selected.year.toString();
+      plan.imdbId = selected.id;
+    }
+  }
+
+  if (!year) {
+    year = await input({
+      message: "Enter the release year (YYYY):",
+      validate: (val) => /^\d{4}$/.test(val) ? true : "Please enter a valid 4-digit year."
+    });
+  }
+
+  plan.title = title;
+  await savePlan(plan);
+
+  // 3. Duration Cut-off
+  const cutoffMinutes = await selectDurationCutoff(metadata, plan.type);
+  
+  // 4. Destination Path
+  let destination = "";
+  if (plan.type === 'movie') {
+    destination = 'movies/';
+  } else {
+    const defaultDest = path.join('tv', plan.title.replace(/[^a-z0-9]/gi, '_'));
+    destination = await input({
+      message: "Enter the destination directory:",
+      default: defaultDest
+    });
+  }
+
+  // 5. Individual File Selection
   const selectedTrackIndices = await selectTracks(metadata, cutoffMinutes);
   if (selectedTrackIndices.length === 0) {
     console.log(chalk.yellow("No tracks selected. Exiting."));
     return;
   }
 
-  // 5. Naming Convention & Offset
+  // 6. Naming Convention & Offset
   let pattern = "";
   let offset = 0;
-  if (selectedTrackIndices.length > 1) {
-    pattern = await input({
-      message: "Enter naming pattern (use 'XX' for track number):",
-      default: `${plan.title} - S01E` + (plan.type === 'tv' ? 'XX' : 'XX')
-    });
-    const offsetStr = await input({
-      message: "Starting track offset:",
-      default: "1"
-    });
-    offset = parseInt(offsetStr) || 0;
+
+  if (plan.type === 'movie') {
+    // For movies, automatically use "Title (Year)"
+    // If multiple tracks are selected, the generator will append _00, _01, etc.
+    pattern = `${title} (${year})`;
   } else {
-    pattern = await input({
-      message: "Enter filename:",
-      default: plan.title
-    });
+    // TV Show Logic
+    if (selectedTrackIndices.length > 1) {
+      pattern = await input({
+        message: "Enter naming pattern (use 'XX' for track number):",
+        default: `${plan.title} - S01EXX`
+      });
+      const offsetStr = await input({
+        message: "Starting track offset:",
+        default: "1"
+      });
+      offset = parseInt(offsetStr) || 0;
+    } else {
+      pattern = await input({
+        message: "Enter filename:",
+        default: plan.title
+      });
+    }
   }
 
   // Generate initial track plans
@@ -205,7 +257,7 @@ function generateInitialTrackPlans(
       name: filename,
       extract: true,
       output: {
-        filename: `${filename}.mkv`,
+        filename: filename,
         directory: destination
       }
     };
@@ -246,7 +298,7 @@ async function reviewAndEdit(plan: BackupPlan) {
       });
 
       plan.tracks[toOverride].name = newName;
-      plan.tracks[toOverride].output.filename = `${newName}.mkv`;
+      plan.tracks[toOverride].output.filename = newName;
       await savePlan(plan);
     }
   }
@@ -258,4 +310,38 @@ function durationToMinutes(duration: string): number {
     return parts[0] * 60 + parts[1] + parts[2] / 60;
   }
   return 0;
+}
+
+interface ImdbResult {
+    id: string;
+    title: string;
+    year: number;
+    type?: string;
+}
+
+async function searchImdb(query: string): Promise<ImdbResult[]> {
+    try {
+        const q = query.trim();
+        if (!q) return [];
+        const firstChar = q.charAt(0).toLowerCase();
+        // IMDB suggestion API requires the first character in the path
+        if (!/[a-z0-9]/.test(firstChar)) return [];
+        
+        const url = `https://v2.sg.media-imdb.com/suggestion/${firstChar}/${encodeURIComponent(q)}.json`;
+        
+        const response = await fetch(url);
+        if (!response.ok) return [];
+        
+        const data = await response.json() as any;
+        if (!data.d) return [];
+        
+        return data.d.map((item: any) => ({
+            id: item.id,
+            title: item.l,
+            year: item.y,
+            type: item.q // 'feature', 'TV series', etc.
+        })).filter((item: ImdbResult) => item.title && item.year);
+    } catch (e) {
+        return []; // Fail silently
+    }
 }

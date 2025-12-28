@@ -351,12 +351,14 @@ ink daemon install
 - [ ] Interactive plan creation wizard
 
 ### Phase 3: Execution Pipeline
+- [x] makemkvcon integration (extraction)
+- [x] ffmpeg integration (transcoding)
 - [ ] Job queue system
-- [ ] makemkvcon integration (extraction)
-- [ ] ffmpeg integration (transcoding)
 - [ ] Pipelined execution
 - [ ] Progress tracking
 - [ ] Job state management
+- [ ] **Optimization**: Parallel transcoding (run multiple ffmpeg jobs)
+- [ ] **Cleanup Queue**: Automatically delete staging files for tracks copied >7 days ago.
 
 ### Phase 4: Polish
 - [ ] System notifications
