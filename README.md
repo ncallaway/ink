@@ -176,9 +176,29 @@ bun run dev
 # Type checking
 bun run typecheck
 
+# Run all tests
+bun run test
+
 # Clean build artifacts
 bun run clean
 ```
+
+## Testing
+
+To run all tests in the project:
+
+```bash
+bun run test
+```
+
+To run tests for a specific package:
+
+```bash
+cd packages/cli
+bun run test
+```
+
+Note: CLI tests are configured to run sequentially to ensure reliable module mocking.
 
 ## Project Status
 

@@ -13,7 +13,8 @@
     "watch": "bun build --watch src/index.ts --outdir dist --target bun",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test . --test-concurrency 1"
   },
   "dependencies": {
     "@ink/shared": "workspace:*",
