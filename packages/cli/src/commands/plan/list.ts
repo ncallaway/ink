@@ -22,7 +22,7 @@ async function run(options: { status?: string, type?: string, order: string }) {
 
   const ids = unwrapOrExit(await lib.storage.listAllPlanFiles(), 1);
 
-  const plans: { plan: BackupPlan, status: string, queueCounts: TrackQueueStatusCount }[] = [];
+  const plans: { plan: BackupPlan, status: string, queueCounts: TrackQueueStatusCount, ignoredCount: number }[] = [];
 
   // Read all files and calculate status
   for (const discId of ids) {
@@ -42,6 +42,7 @@ async function run(options: { status?: string, type?: string, order: string }) {
     }
 
     let status: string = plan.status;
+    let ignoredCount = 0;
 
     // Calculate dynamic status if not draft
     if (status !== 'draft') {
@@ -59,8 +60,9 @@ async function run(options: { status?: string, type?: string, order: string }) {
             queueCounts[q][status]++;
           }
 
-          if (ts.status !== 'complete') { allCompleted = false; }
-          if (ts.status !== 'ready') { anyStarted = true; }
+          if (ts.status === 'ignored') { ignoredCount++; }
+          if (ts.status !== 'complete' && ts.status !== 'ignored') { allCompleted = false; }
+          if (ts.status !== 'ready' && ts.status !== 'ignored') { anyStarted = true; }
           if (ts.status === 'error') { anyError = true; }
         }
       }
@@ -71,7 +73,7 @@ async function run(options: { status?: string, type?: string, order: string }) {
       else { status = 'pending'; }
     }
 
-    plans.push({ plan, status, queueCounts });
+    plans.push({ plan, status, queueCounts, ignoredCount });
   }
 
   // Filter
@@ -119,7 +121,11 @@ async function run(options: { status?: string, type?: string, order: string }) {
     else if (status === 'error') { statusColor = chalk.red; }
 
     const type = plan.type === 'movie' ? 'Movie' : 'TV';
-    const tracks = plan.tracks.length.toString();
+    const activeTracks = plan.tracks.length - item.ignoredCount;
+    let tracks = activeTracks.toString();
+    if (item.ignoredCount > 0) {
+      tracks += ` (${item.ignoredCount} ignored)`;
+    }
 
     listTable.push([
       statusColor(status),

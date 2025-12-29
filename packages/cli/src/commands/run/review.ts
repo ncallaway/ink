@@ -26,11 +26,12 @@ import { BackupPlan, DiscId, lib } from "@ink/shared";
 export const runReview = (parent: Command) => {
     parent
         .command('review')
+        .argument('[discId]', 'Optional disc ID to review')
         .description('Interactively review and name encoded tracks')
         .action(run);
 };
 
-async function run() {
+async function run(discIdArg?: string) {
     const stagingDir = getStagingDir();
     try {
         await fs.access(stagingDir);
@@ -44,6 +45,7 @@ async function run() {
 
     for (const discIdStr of discDirs) {
         if (discIdStr.startsWith('.')) continue;
+        if (discIdArg && discIdStr !== discIdArg) continue;
         const discId = discIdStr as DiscId;
 
         const plan = await loadPlan(discId);
@@ -60,10 +62,15 @@ async function run() {
 
         for (const track of plan.tracks) {
             if (track.extract) {
-                const extractedStatus = getExtractedStatusPath(discId, track.trackNumber);
-                const reviewedStatus = getReviewedStatusPath(discId, track.trackNumber);
+                const extractedStatus = lib.paths.discStaging.markers.extractedDone(discId, track.trackNumber);
+                const reviewedStatus = lib.paths.discStaging.markers.reviewedDone(discId, track.trackNumber);
+                const ignoredStatus = lib.paths.discStaging.markers.reviewedIgnored(discId, track.trackNumber);
 
-                if ((await hasStatus(extractedStatus)) && !(await hasStatus(reviewedStatus))) {
+                const isExtracted = await hasStatus(extractedStatus);
+                const isReviewed = await hasStatus(reviewedStatus);
+                const isIgnored = await hasStatus(ignoredStatus);
+
+                if (isExtracted && !isReviewed && !isIgnored) {
                     needsReview = true;
                     tracksToReview.push(track);
                 }
@@ -73,8 +80,8 @@ async function run() {
         if (!needsReview) {
             // Check if we need to finalize (all reviewed but plan status not 'approved')
             if (plan.status !== 'approved' && plan.status !== 'completed') {
-                 const allReviewed = await checkAllReviewed(plan, discId);
-                 if (allReviewed) {
+                 const allDone = await checkAllReviewed(plan, discId);
+                 if (allDone) {
                      processedAny = true;
                      await finalizePlan(plan, discId);
                  }
@@ -133,7 +140,29 @@ async function reviewStandardSeason(plan: BackupPlan, discId: DiscId, tracksToRe
     for (let i = 1; i < plan.tvShow.disc; i++) {
         const prevDisc = relatedPlans.find(p => p.tvShow?.disc === i);
         if (prevDisc) {
-            episodeOffset += prevDisc.tracks.filter(t => t.extract).length;
+            let foundMaxInDisc = 0;
+            let hasParsedNames = false;
+
+            for (const t of prevDisc.tracks) {
+                if (!t.extract) continue;
+                // Match S01E05 or S1E5 in the finalized name
+                const match = t.name.match(/S\d+E(\d+)/);
+                if (match) {
+                    const n = parseInt(match[1]);
+                    if (n > foundMaxInDisc) foundMaxInDisc = n;
+                    hasParsedNames = true;
+                }
+            }
+
+            if (hasParsedNames) {
+                // If we found definitive episode numbers, use the max as our new baseline
+                if (foundMaxInDisc > episodeOffset) {
+                    episodeOffset = foundMaxInDisc;
+                }
+            } else {
+                // Fallback: Just count extracted tracks if no definitive names found
+                episodeOffset += prevDisc.tracks.filter(t => t.extract).length;
+            }
         } else {
             missingDiscs = true;
             break;
@@ -155,63 +184,185 @@ async function reviewStandardSeason(plan: BackupPlan, discId: DiscId, tracksToRe
     const allEpisodes = await getTvMazeEpisodes(plan.tvShow.tvMazeId || 0);
     const seasonEpisodes = allEpisodes.filter(e => e.season === plan.tvShow!.season);
 
-    // 3. Propose Mapping
-    const tracks = tracksToReview.sort((a, b) => (a.trackNumber as number) - (b.trackNumber as number));
-    const mapping = tracks.map((t, i) => {
-        const epNum = episodeOffset + i + 1;
-        const epInfo = seasonEpisodes.find(e => e.number === epNum);
-        const name = epInfo ? epInfo.name : "Unknown Episode";
-        return {
-            track: t,
-            episodeNumber: epNum,
-            episodeName: name
-        };
-    });
+    // 3. Prepare for review
+    const allExtractedTracks = plan.tracks.filter(t => t.extract).sort((a, b) => (a.trackNumber as number) - (b.trackNumber as number));
+    
+    // Pre-load assigned episodes to sync the counter and assigned set
+    const assignedEpisodeIds = new Set<number>();
+    
+    // First pass: Load existing state
+    const trackStates = new Map<number, { isReviewed: boolean, isIgnored: boolean, episodeId?: number }>();
+    for (const t of allExtractedTracks) {
+        const rPath = lib.paths.discStaging.markers.reviewedDone(discId, t.trackNumber);
+        const iPath = lib.paths.discStaging.markers.reviewedIgnored(discId, t.trackNumber);
+        
+        let state = { isReviewed: false, isIgnored: false, episodeId: undefined };
 
-    console.log(chalk.bold("\nProposed Mapping:"));
-    mapping.forEach(m => {
-        console.log(`  Track ${m.track.trackNumber} -> S${plan.tvShow!.season.toString().padStart(2, '0')}E${m.episodeNumber.toString().padStart(2, '0')} - ${m.episodeName}`);
-    });
-
-    const confirmMapping = await confirm({ message: "Does this mapping look correct?", default: true });
-
-    if (confirmMapping) {
-        // Option to spot check
-        const spotCheck = await confirm({ message: "Would you like to spot check the first track?", default: false });
-        if (spotCheck) {
-            const vlc = playVideo(getExtractedPath(discId, tracks[0].trackNumber));
-            await select({ message: "Press enter when done watching...", choices: [{ name: "Done", value: true }] });
-            vlc.kill();
+        if (await hasStatus(rPath)) {
+            try {
+                const data = JSON.parse(await fs.readFile(rPath, 'utf-8'));
+                if (data.episodeId) {
+                    assignedEpisodeIds.add(data.episodeId);
+                    state.isReviewed = true;
+                    state.episodeId = data.episodeId;
+                }
+            } catch {}
+        } else if (await hasStatus(iPath)) {
+            state.isIgnored = true;
         }
-
-        // Write all statuses
-        for (const m of mapping) {
-            const newName = `${plan.title} - S${plan.tvShow.season.toString().padStart(2, '0')}E${m.episodeNumber.toString().padStart(2, '0')} - ${m.episodeName}`;
-            await writeStatus(getReviewedStatusPath(discId, m.track.trackNumber), {
-                discId,
-                trackNumber: m.track.trackNumber,
-                timestamp: new Date().toISOString(),
-                finalName: newName,
-                // We don't have a single episode ID here if we didn't search specifically, but we could find it
-                episodeId: seasonEpisodes.find(e => e.number === m.episodeNumber)?.id
-            });
-        }
-        console.log(chalk.green("All tracks marked as reviewed."));
-    } else {
-        console.log(chalk.yellow("Review cancelled. You may need to manually name these tracks or check previous disc plans."));
+        trackStates.set(t.trackNumber, state);
     }
 
+    console.log(chalk.blue("\nStarting interactive review..."));
+
+    let currentVlc: ReturnType<typeof playVideo> | null = null;
+    let nextExpectedEpisodeNumber = episodeOffset + 1;
+
+    for (const track of allExtractedTracks) {
+        const state = trackStates.get(track.trackNumber)!;
+
+        // If already processed, just update our counter and move on
+        if (state.isReviewed && state.episodeId) {
+            const ep = seasonEpisodes.find(e => e.id === state.episodeId);
+            if (ep) {
+                console.log(chalk.green(`Track ${track.trackNumber} [Reviewed]: ${ep.name} (S${ep.season}E${ep.number})`));
+                nextExpectedEpisodeNumber = ep.number + 1;
+            }
+            continue;
+        }
+
+        if (state.isIgnored) {
+            console.log(chalk.gray(`Track ${track.trackNumber} [Ignored]`));
+            // Do NOT increment nextExpectedEpisodeNumber
+            continue;
+        }
+
+        // --- Interactive Review for Pending Track ---
+
+        const filePath = getExtractedPath(discId, track.trackNumber);
+        console.log(chalk.cyan(`\n--- Track ${track.trackNumber} ---`));
+        
+        // Kill previous VLC
+        if (currentVlc) { try { currentVlc.kill(); } catch {} }
+
+        // Open VLC
+        currentVlc = playVideo(filePath);
+        console.log(chalk.gray(`Playing ${filePath}...`));
+
+        // Propose dynamic episode
+        let match = seasonEpisodes.find(e => e.number === nextExpectedEpisodeNumber);
+        let choice: "yes" | "no" | "ignore" | "skip" | "quit" | undefined;
+
+        if (match) {
+            choice = await select({
+                message: `Is this S${match.season}E${match.number} - ${match.name}?`,
+                choices: [
+                    { name: "Yes", value: "yes" },
+                    { name: "No (Select another)", value: "no" },
+                    { name: chalk.red("Ignore track (junk/duplicate)"), value: "ignore" },
+                    { name: "Skip for now", value: "skip" },
+                    { name: "Quit Review", value: "quit" }
+                ]
+            }) as any;
+        } else {
+             console.log(chalk.yellow(`No proposed episode found for #${nextExpectedEpisodeNumber} (end of season?).`));
+             choice = await select({
+                 message: `Action for Track ${track.trackNumber}:`,
+                 choices: [
+                    { name: "Select episode manually", value: "no" },
+                    { name: chalk.red("Ignore track (junk/duplicate)"), value: "ignore" },
+                    { name: "Skip for now", value: "skip" },
+                    { name: "Quit Review", value: "quit" }
+                 ]
+             }) as any;
+        }
+
+        if (choice === "quit") break;
+        
+        if (choice === "skip") {
+            // Do NOT increment counter
+            continue;
+        }
+        
+        if (choice === "ignore") {
+            await writeStatus(lib.paths.discStaging.markers.reviewedIgnored(discId, track.trackNumber), {
+                discId,
+                trackNumber: track.trackNumber,
+                timestamp: new Date().toISOString(),
+                ignored: true
+            });
+            console.log(chalk.gray(`Track ${track.trackNumber} ignored.`));
+            // Do NOT increment counter
+            continue;
+        }
+
+        if (choice === "no") {
+             // Selection logic
+             const availableEpisodes = seasonEpisodes.filter(e => !assignedEpisodeIds.has(e.id));
+             
+             const choices = availableEpisodes.map(e => ({
+                 name: `S${e.season}E${e.number} - ${e.name}`,
+                 value: e.id
+             }));
+             
+             choices.push({ name: "Skip", value: -1 });
+             choices.push({ name: chalk.red("Ignore track"), value: -2 });
+             choices.push({ name: "Quit", value: -3 });
+
+             const selectedId = await select({
+                 message: "Select the correct episode:",
+                 choices: choices
+             });
+
+             if (selectedId === -3) break;
+             if (selectedId === -1) continue; // Skip
+             if (selectedId === -2) { // Ignore
+                await writeStatus(lib.paths.discStaging.markers.reviewedIgnored(discId, track.trackNumber), {
+                    discId,
+                    trackNumber: track.trackNumber,
+                    timestamp: new Date().toISOString(),
+                    ignored: true
+                });
+                console.log(chalk.gray(`Track ${track.trackNumber} ignored.`));
+                continue;
+             }
+
+             match = seasonEpisodes.find(e => e.id === selectedId);
+        }
+
+        if (match) {
+            const newName = `${plan.title} - S${plan.tvShow.season.toString().padStart(2, '0')}E${match.number.toString().padStart(2, '0')} - ${match.name}`;
+            
+            await writeStatus(lib.paths.discStaging.markers.reviewedDone(discId, track.trackNumber), {
+                discId,
+                trackNumber: track.trackNumber,
+                timestamp: new Date().toISOString(),
+                finalName: newName,
+                episodeId: match.id
+            });
+            
+            assignedEpisodeIds.add(match.id);
+            // Update counter to follow this assignment
+            nextExpectedEpisodeNumber = match.number + 1;
+            console.log(chalk.green(`MARKED: ${newName}`));
+        }
+    }
+
+    if (currentVlc) { try { currentVlc.kill(); } catch {} }
+
     // Check if we finished everything just now
-    const allReviewed = await checkAllReviewed(plan, discId);
-    if (allReviewed) {
+    const allDone = await checkAllReviewed(plan, discId);
+    if (allDone) {
         await finalizePlan(plan, discId);
     }
 }
+
 async function checkAllReviewed(plan: BackupPlan, discId: string): Promise<boolean> {
     for (const track of plan.tracks) {
         if (track.extract) {
-            const reviewedStatus = getReviewedStatusPath(discId, track.trackNumber);
-            if (!(await hasStatus(reviewedStatus))) return false;
+            const reviewedStatus = lib.paths.discStaging.markers.reviewedDone(discId, track.trackNumber);
+            const ignoredStatus = lib.paths.discStaging.markers.reviewedIgnored(discId, track.trackNumber);
+            if (!(await hasStatus(reviewedStatus)) && !(await hasStatus(ignoredStatus))) return false;
         }
     }
     return true;
@@ -223,18 +374,29 @@ async function finalizePlan(plan: BackupPlan, discId: string) {
     // Read all reviewed status files and update plan
     for (const track of plan.tracks) {
         if (track.extract) {
-            const reviewedPath = getReviewedStatusPath(discId, track.trackNumber);
-            try {
-                const content = await fs.readFile(reviewedPath, 'utf-8');
-                const data = JSON.parse(content);
-                
-                if (data.finalName) {
-                    track.name = data.finalName;
-                    track.output.filename = data.finalName;
+            const reviewedPath = lib.paths.discStaging.markers.reviewedDone(discId, track.trackNumber);
+            const ignoredPath = lib.paths.discStaging.markers.reviewedIgnored(discId, track.trackNumber);
+            
+            if (await hasStatus(reviewedPath)) {
+                try {
+                    const content = await fs.readFile(reviewedPath, 'utf-8');
+                    const data = JSON.parse(content);
+                    
+                    if (data.finalName) {
+                        track.name = data.finalName;
+                        track.output.filename = data.finalName;
+                    }
+                } catch (e) {
+                    console.error(chalk.red(`Error reading reviewed status for Track ${track.trackNumber}: ${e}`));
+                    return;
                 }
-            } catch (e) {
-                console.error(chalk.red(`Error reading reviewed status for Track ${track.trackNumber}: ${e}`));
-                return;
+            } else if (await hasStatus(ignoredPath)) {
+                // Track is ignored, so we don't need to update the plan with a final name
+                // It will be skipped during copy phase
+                console.log(chalk.gray(`Track ${track.trackNumber} is ignored.`));
+            } else {
+                 console.error(chalk.red(`Error: Track ${track.trackNumber} has no review status (neither done nor ignored).`));
+                 return;
             }
         }
     }

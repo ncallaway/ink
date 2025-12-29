@@ -48,6 +48,8 @@ export const paths = {
       encodedRunning: (discId: DiscId, track: TrackNumber) => path.join(encoded(discId), `t${track.toString().padStart(2, '0')}.running`),
       reviewedRunning: (discId: DiscId, track: TrackNumber) => path.join(reviewed(discId), `t${track.toString().padStart(2, '0')}.running`),
       copiedRunning: (discId: DiscId, track: TrackNumber) => path.join(copied(discId), `t${track.toString().padStart(2, '0')}.running`),
+    
+      reviewedIgnored: (discId: DiscId, track: TrackNumber) => path.join(reviewed(discId), `t${track.toString().padStart(2, '0')}.ignored`),
     },
 
     errors: {

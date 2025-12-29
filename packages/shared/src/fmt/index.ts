@@ -8,6 +8,7 @@ export const fmt = {
       case 'running': return chalk.white('Running');
       case 'ready': return chalk.white('Ready');
       case 'complete': return chalk.green('DONE');
+      case 'ignored': return chalk.gray('IGNORED');
     }
   },
 

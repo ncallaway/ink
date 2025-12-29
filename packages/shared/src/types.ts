@@ -136,7 +136,7 @@ export type TrackQueue = 'extract' | 'transcode' | 'review' | 'copy';
 // ineligible - it will not run through this queue
 export type TrackQueueStatus = 'blocked' | 'ready' | 'running' | 'done' | 'error' | 'ineligible';
 
-export type TrackStatus = 'complete' | 'ready' | 'running' | 'error';
+export type TrackStatus = 'complete' | 'ready' | 'running' | 'error' | 'ignored';
 
 export type TrackState = {
   queues: Record<TrackQueue, TrackQueueStatus>,

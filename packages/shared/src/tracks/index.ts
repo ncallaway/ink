@@ -21,7 +21,12 @@ const EXTRACT_QUEUE: QueueRule = {
   ready: async (_plan, _track) => true
 };
 const TRANSCODE_QUEUE: QueueRule = {
-  eligible: async (_plan, track) => track.extract,
+  eligible: async (plan, track) => {
+    if (!track.extract) return false;
+    // Ignored tracks are not eligible for transcode
+    const ignored = await storage.markerPresent(paths.discStaging.markers.reviewedIgnored(plan.discId, track.trackNumber));
+    return !ignored;
+  },
   done: async (plan, track) => storage.markerPresent(paths.discStaging.markers.encodedDone(plan.discId, track.trackNumber)),
   error: async (plan, track) => storage.markerPresent(paths.discStaging.errors.encoded(plan.discId, track.trackNumber)),
   running: async (plan, track) => storage.markerPresent(paths.discStaging.markers.encodedRunning(plan.discId, track.trackNumber)),
@@ -31,7 +36,11 @@ const TRANSCODE_QUEUE: QueueRule = {
 };
 const REVIEW_QUEUE: QueueRule = {
   eligible: async (plan, track) => track.extract && plan.type === 'tv',
-  done: async (plan, track) => storage.markerPresent(paths.discStaging.markers.reviewedDone(plan.discId, track.trackNumber)),
+  done: async (plan, track) => {
+    const done = await storage.markerPresent(paths.discStaging.markers.reviewedDone(plan.discId, track.trackNumber));
+    if (done) return true;
+    return storage.markerPresent(paths.discStaging.markers.reviewedIgnored(plan.discId, track.trackNumber));
+  },
   error: async (plan, track) => storage.markerPresent(paths.discStaging.errors.reviewed(plan.discId, track.trackNumber)),
   running: async (plan, track) => storage.markerPresent(paths.discStaging.markers.reviewedRunning(plan.discId, track.trackNumber)),
 
@@ -39,7 +48,12 @@ const REVIEW_QUEUE: QueueRule = {
   ready: async (plan, track) => EXTRACT_QUEUE.done(plan, track),
 };
 const COPY_QUEUE: QueueRule = {
-  eligible: async (_plan, track) => track.extract,
+  eligible: async (plan, track) => {
+    if (!track.extract) return false;
+    // Ignored tracks are not eligible for copy
+    const ignored = await storage.markerPresent(paths.discStaging.markers.reviewedIgnored(plan.discId, track.trackNumber));
+    return !ignored;
+  },
   done: async (plan, track) => storage.markerPresent(paths.discStaging.markers.copiedDone(plan.discId, track.trackNumber)),
   error: async (plan, track) => storage.markerPresent(paths.discStaging.errors.copied(plan.discId, track.trackNumber)),
   running: async (plan, track) => storage.markerPresent(paths.discStaging.markers.copiedRunning(plan.discId, track.trackNumber)),
@@ -114,11 +128,13 @@ const state = async (plan: BackupPlan, track: TrackPlan): Promise<Result<TrackSt
   const isComplete = Object.values(queues).every(s => s === 'done' || s === 'ineligible');
   const isError = Object.values(queues).some(s => s === 'error');
   const isStarted = Object.values(queues).some(s => s === 'done' || s === 'running');
+  const isIgnored = await storage.markerPresent(paths.discStaging.markers.reviewedIgnored(plan.discId, track.trackNumber));
 
   let status: TrackStatus = 'ready';
   if (isStarted) { status = 'running'; }
   if (isError) { status = 'error'; }
   if (isComplete) { status = 'complete'; }
+  if (isIgnored) { status = 'ignored'; }
 
   return ok({
     queues,
