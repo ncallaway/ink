@@ -1,12 +1,11 @@
 import { Command } from "commander";
 import * as fs from "fs/promises";
 import * as path from "path";
-import * as os from "os";
 import * as readline from "node:readline";
 import ora, { Ora } from "ora";
 import chalk from "chalk";
 import { DevicePath, DiscId, DiscMetadata, DriveStatus, TrackMetadata, lib } from "@ink/shared";
-import { getMetadataDir, displayMetadata } from "./utils";
+import { displayMetadata } from "./utils";
 
 export const metadataRead = (parent: Command) => {
   parent
@@ -51,7 +50,7 @@ const run = async (options: ReadOptions) => {
 
 
     // 3. Check Cache
-    const configDir = getMetadataDir();
+    const configDir = lib.paths.metadatas();
 
     if (discId && options.cache !== false) {
       const cachePath = path.join(configDir, `${discId}.json`);
@@ -159,7 +158,7 @@ export interface StreamRaw {
 export function parseMakeMkvOutput(output: string): DiscMetadata | null {
   const lines = output.split('\n');
   let volumeLabel = 'Unknown';
-  let discId = '';
+  let discId: DiscId | undefined = undefined;
 
   // Map<TrackID, TrackMetadata>
   const tracks: Map<number, TrackMetadata> = new Map();
@@ -281,16 +280,12 @@ export function parseMakeMkvOutput(output: string): DiscMetadata | null {
   // Filter out tiny tracks (less than 10 mins?) or just keep all
   // If we didn't get an ID passed in, generate a fallback signature
   if (!discId) {
-    const signature = volumeLabel + Array.from(tracks.values()).map(t => t.duration).join('');
-    // crypto is not imported in this scope, but we use the shared library now
-    // But wait, the function is standalone. I need to re-import crypto or pass it.
-    // Actually, I'll just leave discId empty and let the caller handle it or use a simple random fallback if needed, 
-    // but the logic above assigns it.
-    // Let's just import crypto at the top.
+    console.error("Could not determine an ID for this disc");
+    process.exit(5);
   }
 
   return {
-    discId: discId || 'unknown',
+    discId: discId,
     volumeLabel,
     userProvidedName: volumeLabel,
     scannedAt: new Date().toISOString(),

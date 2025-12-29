@@ -1,14 +1,14 @@
 import { Command } from "commander";
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { getMetadataPath } from "./utils";
+import { DiscId, lib } from "@ink/shared";
 
 export const metadataDelete = (parent: Command) => {
   parent
     .command('delete <disc-id>')
     .description('Delete metadata for a specific disc')
-    .action(async (discId: string) => {
-        const filepath = getMetadataPath(discId);
+    .action(async (discId: DiscId) => {
+        const filepath = lib.paths.metadata(discId);
         
         try {
             await fs.unlink(filepath);

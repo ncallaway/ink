@@ -21,7 +21,7 @@ export enum DriveStatus {
 }
 
 export interface DiscMetadata {
-  discId: string;
+  discId: DiscId;
   volumeLabel: string;
   userProvidedName: string;
   scannedAt: string;
@@ -69,7 +69,7 @@ export namespace MakeMKV {
 // ============================================================================
 
 export interface BackupPlan {
-  discId: string;
+  discId: DiscId;
   discLabel: string;
   title: string;
   imdbId?: string;

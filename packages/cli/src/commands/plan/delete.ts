@@ -1,14 +1,14 @@
 import { Command } from "commander";
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { getPlanPath } from "./utils";
+import { DiscId, lib } from "@ink/shared";
 
 export const planDelete = (parent: Command) => {
   parent
     .command('delete <disc-id>')
     .description('Delete a backup plan')
-    .action(async (discId: string) => {
-        const filepath = getPlanPath(discId);
+    .action(async (discId: DiscId) => {
+        const filepath = lib.paths.plan(discId);
         
         try {
             await fs.unlink(filepath);

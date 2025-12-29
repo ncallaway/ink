@@ -1,15 +1,15 @@
 import { Command } from "commander";
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { DiscMetadata } from "@ink/shared";
-import { getMetadataPath, displayMetadata } from "./utils";
+import { lib, DiscMetadata, DiscId } from "@ink/shared";
+import { displayMetadata } from "./utils";
 
 export const metadataShow = (parent: Command) => {
   parent
     .command('show <disc-id>')
     .description('Show detailed metadata for a specific disc')
-    .action(async (discId: string) => {
-        const filepath = getMetadataPath(discId);
+    .action(async (discId: DiscId) => {
+        const filepath = lib.paths.metadata(discId);
         
         try {
             const content = await fs.readFile(filepath, 'utf-8');

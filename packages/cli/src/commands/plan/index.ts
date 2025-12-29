@@ -3,10 +3,12 @@ import { planCreate } from "./create";
 import { planList } from "./list";
 import { planShow } from "./show";
 import { planDelete } from "./delete";
+import { planPending } from "./pending";
 
 export const defineCommand = (parent: Command) => {
   const plan = parent.command('plan').description('Manage backup plans');
 
+  planPending(plan);
   planCreate(plan);
   planList(plan);
   planShow(plan);

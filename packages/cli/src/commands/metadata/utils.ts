@@ -1,16 +1,10 @@
-import * as path from "path";
-import * as os from "os";
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { DiscMetadata } from "@ink/shared";
+import { DiscId, DiscMetadata, lib } from "@ink/shared";
 
-export const getMetadataDir = () => path.join(os.homedir(), '.ink', 'metadata');
-
-export const getMetadataPath = (discId: string) => path.join(getMetadataDir(), `${discId}.json`);
-
-export async function loadMetadata(discId: string): Promise<DiscMetadata | null> {
+export async function loadMetadata(discId: DiscId): Promise<DiscMetadata | null> {
     try {
-        const content = await fs.readFile(getMetadataPath(discId), 'utf-8');
+        const content = await fs.readFile(lib.paths.metadata(discId), 'utf-8');
         return JSON.parse(content) as DiscMetadata;
     } catch {
         return null;

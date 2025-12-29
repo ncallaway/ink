@@ -5,16 +5,13 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { select, input, checkbox, confirm } from "@inquirer/prompts";
 import Fuse from "fuse.js";
-import { DiscMetadata, BackupPlan, TrackMetadata, TrackPlan, lib, CandidateEpisode } from "@ink/shared";
+import { DiscMetadata, BackupPlan, TrackMetadata, TrackPlan, lib, CandidateEpisode, DiscId } from "@ink/shared";
 import { 
-    getMetadataDir, 
     loadMetadata, 
     searchTvMaze, 
     getTvMazeEpisodes, 
-    TvMazeShow, 
-    TvMazeEpisode 
 } from "../metadata/utils";
-import { getPlansDir, getPlanPath, savePlan, loadPlan } from "./utils";
+import { savePlan, loadPlan } from "./utils";
 
 export const planCreate = (parent: Command) => {
   parent
@@ -23,7 +20,7 @@ export const planCreate = (parent: Command) => {
     .action(run);
 }
 
-async function run(discId?: string) {
+async function run(discId?: DiscId) {
   let metadata: DiscMetadata | null = null;
 
   if (discId) {
@@ -266,12 +263,12 @@ async function run(discId?: string) {
   plan.updatedAt = new Date().toISOString();
   await savePlan(plan);
 
-  console.log(chalk.green(`\nPlan finalized and saved to ${getPlanPath(plan.discId)}`));
+  console.log(chalk.green(`\nPlan finalized and saved to ${lib.paths.plan(plan.discId)}`));
 }
 
 async function selectUnplannedDisc(): Promise<DiscMetadata | null> {
-  const metaDir = getMetadataDir();
-  const planDir = getPlansDir();
+  const metaDir = lib.paths.metadatas();
+  const planDir = lib.paths.plans();
 
   try {
     await fs.mkdir(planDir, { recursive: true });
@@ -280,8 +277,8 @@ async function selectUnplannedDisc(): Promise<DiscMetadata | null> {
     const unplanned: { name: string, value: DiscMetadata }[] = [];
 
     for (const file of metaFiles) {
-      const discId = file.replace('.json', '');
-      const planExists = await fs.access(getPlanPath(discId)).then(() => true).catch(() => false);
+      const discId: DiscId = file.replace('.json', '') as DiscId;
+      const planExists = await fs.access(lib.paths.plan(discId)).then(() => true).catch(() => false);
       
       if (!planExists) {
         const meta = await loadMetadata(discId);

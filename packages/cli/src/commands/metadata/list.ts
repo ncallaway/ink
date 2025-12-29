@@ -2,8 +2,7 @@ import { Command } from "commander";
 import * as fs from "fs/promises";
 import * as path from "path";
 import chalk from "chalk";
-import { DiscMetadata } from "@ink/shared";
-import { getMetadataDir } from "./utils";
+import { lib, DiscMetadata } from "@ink/shared";
 import { loadPlan } from "../plan/utils";
 
 interface MetadataItem {
@@ -19,7 +18,7 @@ export const metadataList = (parent: Command) => {
     .option('--status <status>', 'Filter by status (e.g. unplanned, draft, pending)')
     .option('--order <field>', 'Sort order (label, status)', 'label')
     .action(async (options: { status?: string, order: string }) => {
-        const dir = getMetadataDir();
+        const dir = lib.paths.metadatas();
         try {
             await fs.access(dir);
         } catch {

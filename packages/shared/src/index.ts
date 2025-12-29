@@ -6,6 +6,8 @@
 
 import { disc } from './disc';
 import { drive } from './drive';
+import { paths } from './paths';
+import { storage } from './storage';
 import { makemkv } from './makemkv';
 import { ffmpeg } from './ffmpeg';
 import { InkConfig } from './types';
@@ -15,6 +17,8 @@ export * from './types';
 export const lib = {
   disc,
   drive,
+  paths,
+  storage,
   makemkv,
   ffmpeg
 }

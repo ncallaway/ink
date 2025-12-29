@@ -1,22 +1,17 @@
-import * as path from "path";
-import * as os from "os";
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { BackupPlan } from "@ink/shared";
+import { lib, BackupPlan, DiscId } from "@ink/shared";
 
-export const getPlansDir = () => path.join(os.homedir(), '.ink', 'plans');
-
-export const getPlanPath = (discId: string) => path.join(getPlansDir(), `${discId}.json`);
 
 export async function savePlan(plan: BackupPlan) {
-    const dir = getPlansDir();
+    const dir = lib.paths.plans();
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(getPlanPath(plan.discId), JSON.stringify(plan, null, 2));
+    await fs.writeFile(lib.paths.plan(plan.discId), JSON.stringify(plan, null, 2));
 }
 
-export async function loadPlan(discId: string): Promise<BackupPlan | null> {
+export async function loadPlan(discId: DiscId): Promise<BackupPlan | null> {
     try {
-        const content = await fs.readFile(getPlanPath(discId), 'utf-8');
+        const content = await fs.readFile(lib.paths.plan(discId), 'utf-8');
         return JSON.parse(content) as BackupPlan;
     } catch {
         return null;
@@ -30,7 +25,7 @@ import { getTrackStatus, getReviewedStatusPath, hasStatus } from "../run/utils";
 export async function displayPlan(plan: BackupPlan) {
   console.log(chalk.bold(`
 Plan: ${plan.title}`));
-  console.log(chalk.gray(`File: ${getPlanPath(plan.discId)}`));
+  console.log(chalk.gray(`File: ${lib.paths.plan(plan.discId)}`));
   console.log(chalk.gray(`Disc ID: ${plan.discId}`));
   console.log(chalk.gray(`Status: ${plan.status}`)); 
   console.log(chalk.gray(`Type: ${plan.type}`));

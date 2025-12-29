@@ -2,8 +2,7 @@ import { Command } from "commander";
 import * as fs from "fs/promises";
 import * as path from "path";
 import chalk from "chalk";
-import { BackupPlan } from "@ink/shared";
-import { getPlansDir } from "./utils";
+import { lib, BackupPlan } from "@ink/shared";
 import { getTrackStatus } from "../run/utils";
 
 export const planList = (parent: Command) => {
@@ -17,7 +16,7 @@ export const planList = (parent: Command) => {
 }
 
 async function run(options: { status?: string, type?: string, order: string }) {
-    const dir = getPlansDir();
+    const dir = lib.paths.plans();
     try {
         await fs.access(dir);
     } catch {
