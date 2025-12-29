@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as fs from "fs/promises";
 import * as path from "path";
 import chalk from "chalk";
-import { select, input } from "@inquirer/prompts";
+import { select, input, confirm } from "@inquirer/prompts";
 import { spawn } from "child_process";
 import Fuse from "fuse.js";
 import { loadPlan, savePlan } from "../plan/utils";
@@ -21,7 +21,7 @@ import {
     getExtractedStatusPath,
     getExtractedPath
 } from "./utils";
-import { BackupPlan } from "@ink/shared";
+import { BackupPlan, DiscId, lib } from "@ink/shared";
 
 export const runReview = (parent: Command) => {
     parent
@@ -42,8 +42,9 @@ async function run() {
     const discDirs = await fs.readdir(stagingDir);
     let processedAny = false;
 
-    for (const discId of discDirs) {
-        if (discId.startsWith('.')) continue;
+    for (const discIdStr of discDirs) {
+        if (discIdStr.startsWith('.')) continue;
+        const discId = discIdStr as DiscId;
 
         const plan = await loadPlan(discId);
         if (!plan || plan.type === 'movie') {
@@ -86,9 +87,10 @@ async function run() {
 
         if (plan.candidates && plan.candidates.length > 0) {
             await reviewCompilation(plan, discId, tracksToReview);
+        } else if (plan.tvShow) {
+            await reviewStandardSeason(plan, discId, tracksToReview);
         } else {
-            // TODO: Standard Season Review Logic
-            console.log(chalk.yellow("Standard season review logic not yet implemented."));
+            console.log(chalk.yellow("Plan type not supported for automated review."));
         }
     }
 
@@ -97,6 +99,114 @@ async function run() {
     }
 }
 
+async function reviewStandardSeason(plan: BackupPlan, discId: DiscId, tracksToReview: any[]) {
+    if (!plan.tvShow) return;
+
+    console.log(chalk.blue(`Calculating episode offsets for ${plan.tvShow.name} Season ${plan.tvShow.season}...`));
+
+    // 1. Load all plans to find offsets
+    const listRes = await lib.storage.listAllPlanFiles();
+    if (listRes.isErr()) {
+        console.error(chalk.red(`Error listing plans: ${listRes.error.message}`));
+        return;
+    }
+    const allIds = listRes.value;
+    const relatedPlans: BackupPlan[] = [];
+
+    for (const id of allIds) {
+        if (id === discId) continue;
+        const planRes = await lib.storage.readPlan(id);
+        if (planRes.isOk()) {
+            const p = planRes.value;
+            if (p.tvShow && p.tvShow.imdbId === plan.tvShow.imdbId && p.tvShow.season === plan.tvShow.season) {
+                relatedPlans.push(p);
+            }
+        }
+    }
+
+    // Sort by disc number
+    relatedPlans.sort((a, b) => (a.tvShow?.disc || 0) - (b.tvShow?.disc || 0));
+
+    let episodeOffset = 0;
+    let missingDiscs = false;
+
+    for (let i = 1; i < plan.tvShow.disc; i++) {
+        const prevDisc = relatedPlans.find(p => p.tvShow?.disc === i);
+        if (prevDisc) {
+            episodeOffset += prevDisc.tracks.filter(t => t.extract).length;
+        } else {
+            missingDiscs = true;
+            break;
+        }
+    }
+
+    if (missingDiscs) {
+        console.log(chalk.yellow(`Warning: I couldn't find plans for all discs prior to Disc ${plan.tvShow.disc}.`));
+        const startEpStr = await input({
+            message: `What is the starting episode number for Disc ${plan.tvShow.disc}?`,
+            default: (episodeOffset + 1).toString()
+        });
+        episodeOffset = (parseInt(startEpStr) || 1) - 1;
+    }
+
+    console.log(chalk.gray(`Start Episode: ${episodeOffset + 1}`));
+
+    // 2. Fetch episode names from TVMaze
+    const allEpisodes = await getTvMazeEpisodes(plan.tvShow.tvMazeId || 0);
+    const seasonEpisodes = allEpisodes.filter(e => e.season === plan.tvShow!.season);
+
+    // 3. Propose Mapping
+    const tracks = tracksToReview.sort((a, b) => (a.trackNumber as number) - (b.trackNumber as number));
+    const mapping = tracks.map((t, i) => {
+        const epNum = episodeOffset + i + 1;
+        const epInfo = seasonEpisodes.find(e => e.number === epNum);
+        const name = epInfo ? epInfo.name : "Unknown Episode";
+        return {
+            track: t,
+            episodeNumber: epNum,
+            episodeName: name
+        };
+    });
+
+    console.log(chalk.bold("\nProposed Mapping:"));
+    mapping.forEach(m => {
+        console.log(`  Track ${m.track.trackNumber} -> S${plan.tvShow!.season.toString().padStart(2, '0')}E${m.episodeNumber.toString().padStart(2, '0')} - ${m.episodeName}`);
+    });
+
+    const confirmMapping = await confirm({ message: "Does this mapping look correct?", default: true });
+
+    if (confirmMapping) {
+        // Option to spot check
+        const spotCheck = await confirm({ message: "Would you like to spot check the first track?", default: false });
+        if (spotCheck) {
+            const vlc = playVideo(getExtractedPath(discId, tracks[0].trackNumber));
+            await select({ message: "Press enter when done watching...", choices: [{ name: "Done", value: true }] });
+            vlc.kill();
+        }
+
+        // Write all statuses
+        for (const m of mapping) {
+            const newName = `${plan.title} - S${plan.tvShow.season.toString().padStart(2, '0')}E${m.episodeNumber.toString().padStart(2, '0')} - ${m.episodeName}`;
+            await writeStatus(getReviewedStatusPath(discId, m.track.trackNumber), {
+                discId,
+                trackNumber: m.track.trackNumber,
+                timestamp: new Date().toISOString(),
+                finalName: newName,
+                // We don't have a single episode ID here if we didn't search specifically, but we could find it
+                episodeId: seasonEpisodes.find(e => e.number === m.episodeNumber)?.id
+            });
+        }
+        console.log(chalk.green("All tracks marked as reviewed."));
+    } else {
+        console.log(chalk.yellow("Review cancelled. You may need to manually name these tracks or check previous disc plans."));
+    }
+
+    // Check if we finished everything just now
+    const allReviewed = await checkAllReviewed(plan, discId);
+    if (allReviewed) {
+        await finalizePlan(plan, discId);
+    }
+}
 async function checkAllReviewed(plan: BackupPlan, discId: string): Promise<boolean> {
     for (const track of plan.tracks) {
         if (track.extract) {

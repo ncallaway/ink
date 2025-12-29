@@ -5,11 +5,14 @@ import * as readline from "node:readline";
 import chalk from "chalk";
 import { select, input, checkbox, confirm } from "@inquirer/prompts";
 import Fuse from "fuse.js";
-import { DiscMetadata, BackupPlan, TrackMetadata, TrackPlan, lib, CandidateEpisode, DiscId } from "@ink/shared";
+import { DiscMetadata, BackupPlan, TrackMetadata, TrackPlan, lib, CandidateEpisode, DiscId, TrackNumber } from "@ink/shared";
 import { 
     loadMetadata, 
     searchTvMaze, 
     getTvMazeEpisodes, 
+    getTvMazeShowByImdbId,
+    TvMazeShow, 
+    TvMazeEpisode 
 } from "../metadata/utils";
 import { savePlan, loadPlan } from "./utils";
 import { unwrapOrExit } from "../../utils/unwrap";
@@ -78,43 +81,37 @@ async function run(discId?: DiscId) {
   });
 
   let year = "";
+  let imdbId = "";
   let tvMazeId: number | undefined;
 
-  if (plan.type === 'tv') {
-    console.log(chalk.blue("Searching TVMaze..."));
-    const tvResults = await searchTvMaze(title);
-    if (tvResults.length > 0) {
-      const selected = await select({
-        message: "Select the correct show:",
-        choices: tvResults.map(r => ({
-          name: `${r.name} (${r.premiered ? r.premiered.substring(0, 4) : 'N/A'})`,
-          value: r
-        }))
-      });
-      title = selected.name;
-      year = selected.premiered ? selected.premiered.substring(0, 4) : "";
-      tvMazeId = selected.id;
-    }
-  } else {
-    console.log(chalk.blue("Searching IMDB..."));
-    const results = await searchImdb(title);
-    
-    if (results.length > 0) {
-      const choices = results.map(r => ({
-        name: `${r.title} (${r.year}) [${r.type}]`,
-        value: r
-      }));
-      choices.push({ name: "Enter manually...", value: null as any });
+  console.log(chalk.blue("Searching IMDB..."));
+  const results = await searchImdb(title);
+  
+  if (results.length > 0) {
+    const choices = results.map(r => ({
+      name: `${r.title} (${r.year}) [${r.type}]`,
+      value: r
+    }));
+    choices.push({ name: "Enter manually...", value: null as any });
 
-      const selected = await select({
-        message: "Select the correct match:",
-        choices: choices
-      });
+    const selected = await select({
+      message: "Select the correct match:",
+      choices: choices
+    });
 
-      if (selected) {
-        title = selected.title;
-        year = selected.year.toString();
-        plan.imdbId = selected.id;
+    if (selected) {
+      title = selected.title;
+      year = selected.year.toString();
+      imdbId = selected.id;
+
+      // If TV, resolve TVMaze ID
+      if (plan.type === 'tv') {
+          console.log(chalk.blue("Resolving TVMaze metadata..."));
+          const tvMazeShow = await getTvMazeShowByImdbId(imdbId);
+          if (tvMazeShow) {
+              tvMazeId = tvMazeShow.id;
+              title = tvMazeShow.name; // Use canonical TVMaze name
+          }
       }
     }
   }
@@ -127,9 +124,11 @@ async function run(discId?: DiscId) {
   }
 
   plan.title = title;
-  if (plan.type === 'tv' && tvMazeId) {
+  plan.imdbId = imdbId;
+
+  if (plan.type === 'tv') {
     plan.tvShow = {
-      imdbId: plan.imdbId || "",
+      imdbId: imdbId,
       tvMazeId: tvMazeId,
       name: title,
       season: tvSubType === 'standard' ? 1 : 0,
@@ -221,12 +220,12 @@ async function run(discId?: DiscId) {
     // For movies, automatically use "Title (Year)"
     // If multiple tracks are selected, the generator will append _00, _01, etc.
     pattern = `${title} (${year})`;
-  } else if (tvSubType === 'compilation') {
-    // For compilations, use generic track numbering until verification
+  } else if (tvSubType === 'compilation' || tvSubType === 'standard') {
+    // For both standard and compilations, defer naming to review step
     pattern = "Placeholder XX";
     offset = 1;
   } else {
-    // TV Show Logic (Standard)
+    // Legacy/Manual Logic (fallback)
     if (selectedTrackIndices.length > 1) {
       pattern = await input({
         message: "Enter naming pattern (use 'XX' for track number):",
@@ -368,7 +367,7 @@ function generateInitialTrackPlans(
         .map(s => s.language);
 
     return {
-      trackNumber: idx,
+      trackNumber: idx as TrackNumber,
       name: filename,
       extract: true,
       transcode: {

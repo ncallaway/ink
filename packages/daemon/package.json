@@ -10,6 +10,7 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {

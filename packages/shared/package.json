@@ -15,6 +15,7 @@
     "watch": "bun build --watch src/index.ts --outdir dist --target bun",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit",
     "test": "bun test"
   },
   "devDependencies": {

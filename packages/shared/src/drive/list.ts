@@ -19,7 +19,7 @@ function listDrivesLinux(): Result<DevicePath[], Error> {
   try {
     const devices = readdirSync('/dev')
       .filter(file => file.startsWith('sr'))
-      .map(file => join('/dev', file));
+      .map(file => join('/dev', file) as DevicePath);
     
     return ok(devices);
   } catch (error) {

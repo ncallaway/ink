@@ -98,34 +98,132 @@ Title: ${title}`));
 
   export async function getTvMazeEpisodes(showId: number): Promise<TvMazeEpisode[]> {
 
+  
+
       try {
+
+  
 
           const url = `https://api.tvmaze.com/shows/${showId}/episodes`;
 
+  
+
           const response = await fetch(url);
+
+  
 
           if (!response.ok) return [];
 
+  
+
           const data = await response.json() as any[];
+
+  
 
           return data.map(item => ({
 
+  
+
               id: item.id,
+
+  
 
               season: item.season,
 
+  
+
               number: item.number,
+
+  
 
               name: item.name
 
+  
+
           }));
+
+  
 
       } catch {
 
+  
+
           return [];
+
+  
 
       }
 
+  
+
   }
+
+  
+
+  
+
+  
+
+  export async function getTvMazeShowByImdbId(imdbId: string): Promise<TvMazeShow | null> {
+
+  
+
+      try {
+
+  
+
+          const url = `https://api.tvmaze.com/lookup/shows?imdb=${imdbId}`;
+
+  
+
+          const response = await fetch(url);
+
+  
+
+          if (!response.ok) return null;
+
+  
+
+          const data = await response.json() as any;
+
+  
+
+          return {
+
+  
+
+              id: data.id,
+
+  
+
+              name: data.name,
+
+  
+
+              premiered: data.premiered
+
+  
+
+          };
+
+  
+
+      } catch {
+
+  
+
+          return null;
+
+  
+
+      }
+
+  
+
+  }
+
+  
+
+  
 
   
