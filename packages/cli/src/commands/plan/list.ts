@@ -135,9 +135,10 @@ async function run(options: { status?: string, type?: string, order: string }) {
         const queueName = lib.fmt.trackQueue(q);
         const eligibleCount = plan.tracks.length - item.queueCounts[q].ineligible;
         const doneCount = item.queueCounts[q].done;
+        const runningCount = item.queueCounts[q].running;
 
         const isDone = doneCount === eligibleCount;
-        const isStarted = doneCount > 0;
+        const isStarted = doneCount > 0 || runningCount > 0;
 
         if (eligibleCount) {
           if (isDone) {

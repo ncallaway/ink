@@ -6,7 +6,6 @@ import { storage } from "../storage";
 import { err, ok, Result, ResultAsync } from "neverthrow";
 import { toError } from "../util";
 
-
 export type MetadataReadOptions = {
   spinner?: Ora;
   /**
