@@ -1,7 +1,7 @@
 import { err, ok, Result, ResultAsync } from "neverthrow";
 import * as fs from "fs/promises";
 import { paths } from "../paths";
-import { DiscId, DiscMetadata } from "../types";
+import { BackupPlan, DiscId, DiscMetadata } from "../types";
 import { toError } from "../util";
 
 const listAllPlanFiles = async (): Promise<Result<DiscId[], Error>> => {
@@ -56,8 +56,29 @@ const readMetadata = async (discId: DiscId): Promise<Result<DiscMetadata, Error>
   return Result.fromThrowable(() => JSON.parse(readRes.value) as DiscMetadata, toError)();
 }
 
+const readPlan = async (discId: DiscId): Promise<Result<BackupPlan, Error>> => {
+  const readRes = await ResultAsync.fromPromise(fs.readFile(paths.plan(discId), 'utf-8'), toError);
+
+  if (readRes.isErr()) {
+    return err(readRes.error);
+  }
+
+  return Result.fromThrowable(() => JSON.parse(readRes.value) as BackupPlan, toError)();
+}
+
+const markerPresent = async (path: string): Promise<boolean> => {
+  try {
+    await fs.access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const storage = {
   listAllMetadataFiles,
   listAllPlanFiles,
-  readMetadata
+  readMetadata,
+  readPlan,
+  markerPresent
 }

@@ -15,10 +15,10 @@ export const getExtractedPath = (discId: string, track: number) => path.join(get
 export const getEncodedPath = (discId: string, track: number) => path.join(getEncodedDir(discId), `t${track.toString().padStart(2, '0')}.mkv`);
 
 // Status file paths
-export const getExtractedStatusPath = (discId: string, track: number) => path.join(getExtractedDir(discId), `t${track.toString().padStart(2, '0')}.json`);
-export const getEncodedStatusPath = (discId: string, track: number) => path.join(getEncodedDir(discId), `t${track.toString().padStart(2, '0')}.json`);
-export const getReviewedStatusPath = (discId: string, track: number) => path.join(getReviewedDir(discId), `t${track.toString().padStart(2, '0')}.json`);
-export const getCopiedStatusPath = (discId: string, track: number) => path.join(getCopiedDir(discId), `t${track.toString().padStart(2, '0')}.json`);
+export const getExtractedStatusPath = (discId: string, track: number) => path.join(getExtractedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
+export const getEncodedStatusPath = (discId: string, track: number) => path.join(getEncodedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
+export const getReviewedStatusPath = (discId: string, track: number) => path.join(getReviewedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
+export const getCopiedStatusPath = (discId: string, track: number) => path.join(getCopiedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
 
 export async function ensureDirs(discId: string) {
     await fs.mkdir(getExtractedDir(discId), { recursive: true });

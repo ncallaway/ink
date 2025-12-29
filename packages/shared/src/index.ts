@@ -9,18 +9,22 @@ import { drive } from './drive';
 import { paths } from './paths';
 import { storage } from './storage';
 import { plans } from './plans';
+import { tracks } from './tracks';
 import { makemkv } from './makemkv';
 import { ffmpeg } from './ffmpeg';
+import { fmt } from './fmt';
 import { InkConfig } from './types';
 
 export * from './types';
 
 export const lib = {
+  fmt,
   disc,
   drive,
   paths,
   storage,
   plans,
+  tracks,
   makemkv,
   ffmpeg
 }

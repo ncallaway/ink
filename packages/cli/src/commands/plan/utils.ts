@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import chalk from "chalk";
-import { lib, BackupPlan, DiscId } from "@ink/shared";
+import { lib, BackupPlan, DiscId, TrackQueue, TrackStatus } from "@ink/shared";
 
 
 export async function savePlan(plan: BackupPlan) {
@@ -19,8 +19,6 @@ export async function loadPlan(discId: DiscId): Promise<BackupPlan | null> {
 }
 
 import { getTrackStatus, getReviewedStatusPath, hasStatus } from "../run/utils";
-
-// ... existing imports ...
 
 export async function displayPlan(plan: BackupPlan) {
   console.log(chalk.bold(`
@@ -47,36 +45,29 @@ Plan: ${plan.title}`));
         } catch {}
     }
 
-    // Stage Status Logic
-    const stages = [
-        { name: 'EXTRACT', eligible: t.extract, done: status === 'extracted' || status === 'encoded' || status === 'reviewed' || status === 'completed', ready: status === 'pending' },
-        { name: 'TRANSCODE', eligible: t.extract, done: status === 'encoded' || status === 'reviewed' || status === 'completed', ready: status === 'extracted' },
-        { name: 'REVIEW', eligible: plan.type === 'tv', done: status === 'reviewed' || status === 'completed', ready: (status === 'extracted' || status === 'encoded') && !hasReviewedFile },
-        { name: 'COPY', eligible: t.extract, done: status === 'completed', ready: (status === 'encoded' || status === 'reviewed') && (plan.type === 'movie' || hasReviewedFile) }
-    ];
+    const stateRes = await lib.tracks.state(plan, t);
 
-    const stageDisplay = stages.map(s => {
-        if (!s.eligible) return chalk.dim(s.name);
-        if (s.done) return chalk.green(s.name);
-        if (s.ready) return chalk.cyan(s.name); // Using cyan for "light green/ready"
-        return chalk.white(s.name);
-    }).join(chalk.gray(" | "));
+    let stageDisplay: string = "";
+    if (stateRes.isOk()) {
+      const queues = Object.keys(stateRes.value.queues) as TrackQueue[]
+      const stages = queues.map(q => lib.fmt.trackQueueStatus(q, stateRes.value.queues[q]));
+      stageDisplay = stages.join(chalk.gray(" | "));
+    } else {
+      stageDisplay = chalk.red(`Error getting status: ${stateRes.error.message}`);
+    }
 
     // Banner Logic
     let banner = "";
-    const eligibleStages = stages.filter(s => s.eligible);
-    const completedStages = eligibleStages.filter(s => s.done);
-    
-    if (completedStages.length === eligibleStages.length) {
-        banner = chalk.bgGreen.black(" COMPLETE ");
-    } else if (completedStages.length > 0) {
-        banner = chalk.bgCyan.black(" IN PROGRESS ");
+    if (stateRes.isOk()) {
+      banner = lib.fmt.trackStatus(stateRes.value.status);
     } else {
-        banner = chalk.bgWhite.black(" UNSTARTED ");
+      banner = chalk.red('ERROR')
     }
 
     console.log(`\n${banner} ${chalk.white(`Track ${t.trackNumber} : ${t.output.filename}`)}${resolvedName}`);
-    console.log(`  ${stageDisplay}`);
+    if (stateRes.isOk() && stateRes.value.status !== 'complete') {
+      console.log(`  ${stageDisplay}`);
+    }
     console.log(chalk.gray(`  Target Dir: ${t.output.directory}`));
     if (t.transcode) {
         console.log(chalk.gray(`  Transcode: ${t.transcode.codec} (${t.transcode.preset}, CRF ${t.transcode.crf})`));

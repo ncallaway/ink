@@ -1,4 +1,5 @@
 export type DiscId = string & { __brand: "disc:DiscId" };
+export type TrackNumber = number & { __brand: "disc:TrackNumber" };
 export type DevicePath = string & { __brand: "drive:DevicePath" };
 
 // ============================================================================
@@ -29,7 +30,7 @@ export interface DiscMetadata {
 }
 
 export interface TrackMetadata {
-  trackNumber: number;
+  trackNumber: TrackNumber;
   title?: string;
   duration: string;
   size: number;
@@ -97,7 +98,7 @@ export interface CandidateEpisode {
 }
 
 export interface TrackPlan {
-  trackNumber: number;
+  trackNumber: TrackNumber;
   name: string;
   extract: boolean;
   transcode?: TranscodeSettings;
@@ -124,6 +125,25 @@ export interface OutputSettings {
 // Job Types
 // ============================================================================
 
+export type TrackQueue = 'extract' | 'transcode' | 'review' | 'copy';
+
+// a track can be:
+// blocked - the track will eventually run through this queue, but it is not yet ready to run through the queue.
+// ready - this track will run through the queue, and has met all the requirements
+// running - it is actively being processed right now
+// done - the track finished being processed by the queue.
+// errror - the track started to run through the queue, but had a problem
+// ineligible - it will not run through this queue
+export type TrackQueueStatus = 'blocked' | 'ready' | 'running' | 'done' | 'error' | 'ineligible';
+
+export type TrackStatus = 'complete' | 'ready' | 'running' | 'error';
+
+export type TrackState = {
+  queues: Record<TrackQueue, TrackQueueStatus>,
+  status: TrackStatus
+}
+
+
 export type JobStatus = 
   | 'pending' 
   | 'extracting' 
@@ -136,8 +156,8 @@ export type JobStatus =
 
 export interface Job {
   id: string;
-  discId: string;
-  trackNumber: number;
+  discId: DiscId;
+  trackNumber: TrackNumber;
   status: JobStatus;
   createdAt: string;
   startedAt?: string;
