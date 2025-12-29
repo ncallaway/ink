@@ -2,11 +2,11 @@ import { ok, err, Result } from 'neverthrow';
 import { platform } from 'node:os';
 import { openSync, closeSync, constants } from 'node:fs';
 import { dlopen } from 'bun:ffi';
-import { DriveStatus } from '../types';
+import { DevicePath, DriveStatus } from '../types';
 
 const CDROM_DRIVE_STATUS = 0x5326;
 
-export function status(devicePath: string): Result<DriveStatus, Error> {
+export function status(devicePath: DevicePath): Result<DriveStatus, Error> {
   const os = platform();
 
   if (os === 'linux') {

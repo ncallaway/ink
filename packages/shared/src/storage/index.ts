@@ -56,6 +56,11 @@ const readMetadata = async (discId: DiscId): Promise<Result<DiscMetadata, Error>
   return Result.fromThrowable(() => JSON.parse(readRes.value) as DiscMetadata, toError)();
 }
 
+const saveMetadata = async (discId: DiscId, metadata: DiscMetadata) => {
+  await fs.mkdir(paths.metadatas(), { recursive: true });
+  await fs.writeFile(paths.metadata(discId), JSON.stringify(metadata, null, 2));
+}
+
 const readPlan = async (discId: DiscId): Promise<Result<BackupPlan, Error>> => {
   const readRes = await ResultAsync.fromPromise(fs.readFile(paths.plan(discId), 'utf-8'), toError);
 
@@ -80,5 +85,6 @@ export const storage = {
   listAllPlanFiles,
   readMetadata,
   readPlan,
+  saveMetadata,
   markerPresent
 }

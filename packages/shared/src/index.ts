@@ -8,6 +8,7 @@ import { disc } from './disc';
 import { drive } from './drive';
 import { paths } from './paths';
 import { storage } from './storage';
+import { metadata } from './metadata';
 import { plans } from './plans';
 import { tracks } from './tracks';
 import { makemkv } from './makemkv';
@@ -23,6 +24,7 @@ export const lib = {
   drive,
   paths,
   storage,
+  metadata,
   plans,
   tracks,
   makemkv,

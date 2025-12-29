@@ -7,6 +7,7 @@ import { lib, DriveStatus, DevicePath } from "@ink/shared";
 import { loadPlan } from "../plan/utils";
 import { formatDuration, calculateEta } from "./time";
 import { ensureDirs, getExtractedDir, getExtractedPath, getExtractedStatusPath, hasStatus, writeStatus } from "./utils";
+import { loadMetadata } from "../metadata/utils";
 
 export const runExtract = (parent: Command) => {
   parent
@@ -53,7 +54,10 @@ async function run() {
         // Load Plan
         const plan = await loadPlan(discId);
         if (!plan) {
-            spinner.info(`Disc ${discId} found, but no plan exists. Skipping.`);
+            spinner.info(`Disc ${discId} found, but no plan exists. Checking for metadata.`);
+
+            const metadata = await loadMetadata(discId);
+            console.log("Metadata for disc: ", metadata);
             continue;
         }
 
