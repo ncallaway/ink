@@ -12,17 +12,9 @@ export const planPending = (parent: Command) => {
 }
 
 async function run() {
-  const metadataDiscs = unwrapOrExit(
-    await lib.storage.listAllMetadataFiles(), 1, "Failed to read metadata files"
-  );
-  const metadataSet = new Set(metadataDiscs);
-  const planSet = new Set(unwrapOrExit(
-    await lib.storage.listAllPlanFiles(), 2, "Failed to read plan files"
-  ));
+  const pending = unwrapOrExit(await lib.plans.pending(), 1);
 
-  const pending = metadataSet.difference(planSet);
-
-  if (pending.size === 0) {
+  if (pending.length === 0) {
     console.log("No imported metadata needs a plan.");
     process.exit(0);
   }

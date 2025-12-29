@@ -12,6 +12,7 @@ import {
     getTvMazeEpisodes, 
 } from "../metadata/utils";
 import { savePlan, loadPlan } from "./utils";
+import { unwrapOrExit } from "../../utils/unwrap";
 
 export const planCreate = (parent: Command) => {
   parent
@@ -267,43 +268,30 @@ async function run(discId?: DiscId) {
 }
 
 async function selectUnplannedDisc(): Promise<DiscMetadata | null> {
-  const metaDir = lib.paths.metadatas();
-  const planDir = lib.paths.plans();
+  const pending = unwrapOrExit(await lib.plans.pending(), 1);
+  const metadata: DiscMetadata[] = [];
 
-  try {
-    await fs.mkdir(planDir, { recursive: true });
-    const metaFiles = (await fs.readdir(metaDir)).filter(f => f.endsWith('.json'));
-    
-    const unplanned: { name: string, value: DiscMetadata }[] = [];
+  for (const discId of pending) {
+    const metaRes = await lib.storage.readMetadata(discId);
 
-    for (const file of metaFiles) {
-      const discId: DiscId = file.replace('.json', '') as DiscId;
-      const planExists = await fs.access(lib.paths.plan(discId)).then(() => true).catch(() => false);
-      
-      if (!planExists) {
-        const meta = await loadMetadata(discId);
-        if (meta) {
-          unplanned.push({
-            name: `${meta.userProvidedName || meta.volumeLabel} (${discId})`,
-            value: meta
-          });
-        }
-      }
-    }
+    // no-op to skip errors
+    metaRes.match(meta => { metadata.push(meta); }, () => {});
+  }
 
-    if (unplanned.length === 0) {
-      console.log(chalk.yellow("No unplanned metadata found. Run 'ink metadata read' first."));
-      return null;
-    }
+  const options = metadata.map(meta => ({
+    name: `${meta.userProvidedName || meta.volumeLabel} (${meta.discId})`,
+    value: meta
+  })); 
 
-    return await select({
-      message: "Select a disc to plan:",
-      choices: unplanned
-    });
-  } catch (e: any) {
-    console.error(chalk.red(`Error listing metadata: ${e.message}`));
+  if (options.length === 0) {
+    console.log(chalk.yellow("No unplanned metadata found. Run 'ink metadata read' first."));
     return null;
   }
+
+  return await select({
+    message: "Select a disc to plan:",
+    choices: options 
+  });
 }
 
 async function selectDurationCutoff(metadata: DiscMetadata, type: 'movie' | 'tv'): Promise<number> {
