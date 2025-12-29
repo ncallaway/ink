@@ -1,18 +1,39 @@
-import { err, ok, Result } from "neverthrow";
+import { err, ok, Result, ResultAsync } from "neverthrow";
 import * as fs from "fs/promises";
 import { paths } from "../paths";
 import { DiscId, DiscMetadata } from "../types";
 
+/**
+ * Coerces an unknown error into a proper Error object.
+ */
+const toError = (e: unknown): Error => {
+  if (e instanceof Error) return e;
+  if (typeof e === 'string') return new Error(e);
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string') {
+    return new Error((e as any).message);
+  }
+  try {
+    return new Error(`Unknown error: ${JSON.stringify(e)}`);
+  } catch {
+    return new Error(`Unknown error: ${String(e)}`);
+  }
+};
+
 const listAllPlanFiles = async (): Promise<Result<DiscId[], Error>> => {
   const plansDir = paths.plans();
 
-  try {
-    await fs.access(plansDir);
-  } catch {
-    return ok([]);
+  // Read directory directly
+  const readRes = await ResultAsync.fromPromise(fs.readdir(plansDir), toError);
+  
+  if (readRes.isErr()) {
+    // If directory is missing, return empty list
+    if ((readRes.error as any).code === 'ENOENT') {
+      return ok([]);
+    }
+    return err(readRes.error);
   }
 
-  const planFiles = await fs.readdir(plansDir);
+  const planFiles = readRes.value;
   const planJsonFiles = planFiles.filter(f => f.endsWith('.json'));
   const planDiscIds = planJsonFiles.map(s => s.replace('.json', '')) as DiscId[];
 
@@ -22,13 +43,18 @@ const listAllPlanFiles = async (): Promise<Result<DiscId[], Error>> => {
 const listAllMetadataFiles = async (): Promise<Result<DiscId[], Error>> => {
   const metadataDir = paths.metadatas();
 
-  try {
-    await fs.access(metadataDir);
-  } catch {
-    return ok([]);
+  // Read directory directly
+  const readRes = await ResultAsync.fromPromise(fs.readdir(metadataDir), toError);
+
+  if (readRes.isErr()) {
+    // If directory is missing, return empty list
+    if ((readRes.error as any).code === 'ENOENT') {
+      return ok([]);
+    }
+    return err(readRes.error);
   }
 
-  const metadataFiles = await fs.readdir(metadataDir);
+  const metadataFiles = readRes.value;
   const metadataJsonFiles = metadataFiles.filter(f => f.endsWith('.json'));
   const metadataDiscIds = metadataJsonFiles.map(s => s.replace('.json', '')) as DiscId[];
 
@@ -36,14 +62,13 @@ const listAllMetadataFiles = async (): Promise<Result<DiscId[], Error>> => {
 }
 
 const readMetadata = async (discId: DiscId): Promise<Result<DiscMetadata, Error>> => {
-  try {
-    const content = await fs.readFile(paths.metadata(discId), 'utf-8');
-    const metadata = JSON.parse(content) as DiscMetadata;
-    // todo: validate
-    return ok(metadata);
-  } catch (e) {
-    return err(e);
+  const readRes = await ResultAsync.fromPromise(fs.readFile(paths.metadata(discId), 'utf-8'), toError);
+
+  if (readRes.isErr()) {
+    return err(readRes.error);
   }
+
+  return Result.fromThrowable(() => JSON.parse(readRes.value) as DiscMetadata, toError)();
 }
 
 export const storage = {
