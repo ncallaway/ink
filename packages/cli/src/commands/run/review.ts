@@ -191,12 +191,14 @@ async function reviewStandardSeason(plan: BackupPlan, discId: DiscId, tracksToRe
     const assignedEpisodeIds = new Set<number>();
     
     // First pass: Load existing state
-    const trackStates = new Map<number, { isReviewed: boolean, isIgnored: boolean, episodeId?: number }>();
+    const trackStates = new Map<number, { isExtracted: boolean, isReviewed: boolean, isIgnored: boolean, episodeId?: number }>();
     for (const t of allExtractedTracks) {
+        const ePath = lib.paths.discStaging.markers.extractedDone(discId, t.trackNumber);
         const rPath = lib.paths.discStaging.markers.reviewedDone(discId, t.trackNumber);
         const iPath = lib.paths.discStaging.markers.reviewedIgnored(discId, t.trackNumber);
         
-        let state = { isReviewed: false, isIgnored: false, episodeId: undefined };
+        let state = { isExtracted: false, isReviewed: false, isIgnored: false, episodeId: undefined };
+        state.isExtracted = await hasStatus(ePath);
 
         if (await hasStatus(rPath)) {
             try {
@@ -235,6 +237,12 @@ async function reviewStandardSeason(plan: BackupPlan, discId: DiscId, tracksToRe
             console.log(chalk.gray(`Track ${track.trackNumber} [Ignored]`));
             // Do NOT increment nextExpectedEpisodeNumber
             continue;
+        }
+
+        if (!state.isExtracted) {
+            // We can't safely review this or any subsequent tracks yet because it would
+            // throw off the episode counter for this disc.
+            break;
         }
 
         // --- Interactive Review for Pending Track ---
