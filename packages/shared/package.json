@@ -23,6 +23,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@parcel/watcher": "^2.5.1",
     "neverthrow": "^8.2.0"
   }
 }

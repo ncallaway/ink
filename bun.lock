@@ -47,6 +47,7 @@
       "name": "@ink/shared",
       "version": "0.1.0",
       "dependencies": {
+        "@parcel/watcher": "^2.5.1",
         "neverthrow": "^8.2.0",
       },
       "devDependencies": {
