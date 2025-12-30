@@ -4,25 +4,85 @@ import chalk from "chalk";
 import ora from "ora";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { lib, DiscId } from "@ink/shared";
 import { loadPlan } from "../plan/utils";
 import { 
     getStagingDir,
     getEncodedPath, 
-    getEncodedStatusPath, 
-    getReviewedStatusPath,
-    getCopiedStatusPath, 
-    hasStatus,
-    writeStatus
+    getReviewedStatusPath
 } from "./utils";
+import * as fs from "fs/promises";
+import watcher from "@parcel/watcher";
+import { platform } from "os";
 
 export const runCopy = (parent: Command) => {
   parent
     .command('copy')
-    .description('Copy finalized files to SMB destination')
+    .description('Process copy queue for finalized tracks (Continuous Loop)')
     .action(run);
 }
 
+function sanitizeRemotePath(p: string): string {
+    // SMB/Windows illegal characters: \ / : * ? " < > |
+    // We keep / as it's our path separator for the remote command, 
+    // but we should sanitize individual components.
+    return p.replace(/[:*?"<>|]/g, '-');
+}
+
+let isProcessing = false;
+let pendingTrigger = false;
+
 async function run() {
+    console.log(chalk.blue("Starting copy loop... (Press Ctrl+C to exit)"));
+
+    // 1. Setup Watchers
+    const plansDir = lib.paths.plans();
+    const stagingDir = lib.paths.staging();
+    await fs.mkdir(plansDir, { recursive: true });
+    await fs.mkdir(stagingDir, { recursive: true });
+
+    const backends: Record<string, string> = {
+        linux: 'inotify',
+        darwin: 'fs-events',
+        win32: 'windows'
+    };
+    const backend = backends[platform()] || undefined;
+
+    const onEvent = () => {
+        if (isProcessing) {
+            pendingTrigger = true;
+            return;
+        }
+        triggerCycle();
+    };
+
+    let debounceTimer: Timer | null = null;
+    const triggerCycle = () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            runCycle().catch(err => console.error(chalk.red("Cycle failed:"), err));
+        }, 1000);
+    };
+
+    const plansSub = await watcher.subscribe(plansDir, onEvent, { backend });
+    const stagingSub = await watcher.subscribe(stagingDir, onEvent, { backend });
+
+    process.on('SIGINT', () => {
+        console.log(chalk.yellow("\nStopping copy loop..."));
+        plansSub.unsubscribe();
+        stagingSub.unsubscribe();
+        process.exit(0);
+    });
+
+    // Initial run
+    triggerCycle();
+}
+
+async function runCycle() {
+    if (isProcessing) return;
+    isProcessing = true;
+    pendingTrigger = false;
+
     const execAsync = promisify(exec);
     const stagingDir = getStagingDir();
     const smbTarget = process.env.SMB_TARGET || 'smb://192.168.1.200/storage/media';
@@ -30,44 +90,33 @@ async function run() {
     const smbPass = process.env.SMB_PASSWORD || 'password';
 
     // Parse SMB Target
-    // Format: smb://host/share/path/prefix
     const match = smbTarget.match(/^smb:\/\/([^\/]+)\/([^\/]+)(.*)$/);
     if (!match) {
         console.error("Invalid SMB_TARGET format. Expected smb://host/share/path");
+        isProcessing = false;
         return;
     }
-    const [, host, share, prefixPath] = match; // prefixPath might be "/media"
+    const [, host, share, prefixPath] = match;
 
-    const discDirs = await fs.readdir(stagingDir);
-    let processedAny = false;
+    try {
+        const discDirs = await fs.readdir(stagingDir);
+        let processedAny = false;
 
-    for (const discId of discDirs) {
-        if (discId.startsWith('.')) continue;
+        for (const discIdStr of discDirs) {
+            if (discIdStr.startsWith('.')) continue;
+            const discId = discIdStr as DiscId;
 
-        const plan = await loadPlan(discId);
-        if (!plan) continue;
+            const plan = await loadPlan(discId);
+            if (!plan) continue;
 
-        for (const track of plan.tracks) {
-            const encodedStatus = getEncodedStatusPath(discId, track.trackNumber);
-            const reviewedStatus = getReviewedStatusPath(discId, track.trackNumber);
-            const copiedStatus = getCopiedStatusPath(discId, track.trackNumber);
-
-            // Logic: 
-            // 1. Must be encoded.
-            // 2. If TV, must be reviewed.
-            // 3. Must not be already copied.
-            const isEncoded = await hasStatus(encodedStatus);
-            const isReviewed = await hasStatus(reviewedStatus);
-            const isCopied = await hasStatus(copiedStatus);
-
-            if (isEncoded && !isCopied) {
-                // TV shows REQUIRE review. Movies do not.
-                if (plan.type === 'tv' && !isReviewed) {
-                    continue; 
+            for (const track of plan.tracks) {
+                // Use the standardized queue status check
+                const statusRes = await lib.tracks.queueStatus(plan, track, 'copy');
+                if (statusRes.isErr() || statusRes.value !== 'ready') {
+                    continue;
                 }
 
                 processedAny = true;
-                
                 const localPath = getEncodedPath(discId, track.trackNumber);
                 
                 // Determine remote path
@@ -79,10 +128,12 @@ async function run() {
 
                 let remoteFilename = track.output.filename;
                 
-                // CHECK FOR RESOLVED NAME
-                if (await hasStatus(reviewedStatus)) {
+                // Check for reviewed name
+                const reviewedDonePath = lib.paths.discStaging.markers.reviewedDone(discId, track.trackNumber);
+                if (await lib.storage.markerPresent(reviewedDonePath)) {
                     try {
-                        const reviewedContent = await fs.readFile(reviewedStatus, 'utf-8');
+                        const reviewedStatusPath = getReviewedStatusPath(discId, track.trackNumber);
+                        const reviewedContent = await fs.readFile(reviewedStatusPath, 'utf-8');
                         const reviewedData = JSON.parse(reviewedContent);
                         if (reviewedData.finalName) {
                             remoteFilename = reviewedData.finalName;
@@ -90,38 +141,42 @@ async function run() {
                     } catch {}
                 }
 
-                // Ensure extension matches source (usually .mkv) if missing
                 const sourceExt = path.extname(localPath);
                 if (!path.extname(remoteFilename)) {
                     remoteFilename += sourceExt;
                 }
 
                 const cleanPrefix = prefixPath.replace(/^\//, '').replace(/\/$/, '');
-                const cleanSuffix = suffix.replace(/^\//, ''); // relative
+                const cleanSuffix = suffix.replace(/^\//, '');
                 
-                const remoteDir = path.join(cleanPrefix, cleanSuffix).replace(/\\/g, '/');
-                const remotePath = path.join(cleanPrefix, cleanSuffix, remoteFilename).replace(/\\/g, '/');
+                const remoteDir = sanitizeRemotePath(path.join(cleanPrefix, cleanSuffix).replace(/\\/g, '/'));
+                const remoteFilenameSanitized = sanitizeRemotePath(remoteFilename);
+                const remotePath = path.join(remoteDir, remoteFilenameSanitized).replace(/\\/g, '/');
 
                 console.log(chalk.blue(`\n[Track ${track.trackNumber}] ${track.name}`));
                 
-                // Escape single quotes for the shell command string
                 const smbCommandString = `mkdir "${remoteDir}"; put "${localPath}" "${remotePath}"`.replace(/'/g, "'\\''");
                 const cmd = `smbclient '//${host}/${share}' -U '${smbUser}%${smbPass}' -c '${smbCommandString}'`;
                 
-                const spinner = ora(`Copying to ${smbTarget}/${cleanSuffix}/${remoteFilename}...`).start();
+                const spinner = ora(`Copying to ${smbTarget}/${remotePath}...`).start();
                 
+                const rmRunningMarker = await lib.storage.writeTrackQueueMarker(
+                    discId, track.trackNumber, 'copy', 'running'
+                );
+
                 try {
                     await execAsync(cmd);
                     spinner.succeed("Copy complete.");
 
-                    // Write Status
-                    await writeStatus(copiedStatus, {
-                        discId,
-                        trackNumber: track.trackNumber,
-                        timestamp: new Date().toISOString(),
-                        destination: `smb://${host}/${share}/${remotePath}`
-                    });
-
+                    await lib.storage.writeTrackQueueMarker(
+                        discId, track.trackNumber, 'copy', 'done',
+                        {
+                            discId,
+                            trackNumber: track.trackNumber,
+                            timestamp: new Date().toISOString(),
+                            destination: `smb://${host}/${share}/${remotePath}`
+                        }
+                    );
                 } catch (e: any) {
                     spinner.text = "Retrying copy without mkdir...";
                     try {
@@ -129,24 +184,28 @@ async function run() {
                          await execAsync(cmdRetry);
                          spinner.succeed("Copy complete (Retry).");
                          
-                         await writeStatus(copiedStatus, {
-                            discId,
-                            trackNumber: track.trackNumber,
-                            timestamp: new Date().toISOString(),
-                            destination: `smb://${host}/${share}/${remotePath}`
-                        });
+                         await lib.storage.writeTrackQueueMarker(
+                            discId, track.trackNumber, 'copy', 'done',
+                            {
+                                discId,
+                                trackNumber: track.trackNumber,
+                                timestamp: new Date().toISOString(),
+                                destination: `smb://${host}/${share}/${remotePath}`
+                            }
+                        );
                     } catch (retryErr: any) {
                         spinner.fail(`Copy failed: ${retryErr.message}`);
                     }
+                } finally {
+                    await rmRunningMarker();
                 }
             }
         }
-    }
-
-    if (!processedAny) {
-        console.log("No pending copies found.");
+    } finally {
+        isProcessing = false;
+        if (pendingTrigger) {
+            runCycle().catch(err => console.error(chalk.red("Follow-up cycle failed:"), err));
+        }
     }
 }
-
-import * as fs from "fs/promises";
 
