@@ -11,6 +11,7 @@ import { storage } from './storage';
 import { metadata } from './metadata';
 import { plans } from './plans';
 import { tracks } from './tracks';
+import { processing } from './processing';
 import { makemkv } from './makemkv';
 import { ffmpeg } from './ffmpeg';
 import { fmt } from './fmt';
@@ -27,6 +28,7 @@ export const lib = {
   metadata,
   plans,
   tracks,
+  processing,
   makemkv,
   ffmpeg
 }

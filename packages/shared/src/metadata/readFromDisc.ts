@@ -6,6 +6,9 @@ import { storage } from "../storage";
 import { err, ok, Result, ResultAsync } from "neverthrow";
 import { toError } from "../util";
 
+
+export type MetadataPromptFn = (volumeLabel: string | undefined) => Promise<string>;
+
 export type MetadataReadOptions = {
   spinner?: Ora;
   /**
@@ -15,8 +18,12 @@ export type MetadataReadOptions = {
   discId?: DiscId
 }
 
-export const readFromDisc = async (device: DevicePath, options: MetadataReadOptions = {}): Promise<Result<DiscMetadata, Error>> => {
+export const readFromDisc = async (device: DevicePath, namePrompt: MetadataPromptFn, options: MetadataReadOptions = {}): Promise<Result<DiscMetadata, Error>> => {
   const { spinner } = options;
+
+  if (!device) {
+    return err(new Error("The device cannot be blank"))
+  }
 
   // Identify the disc
   let discId: DiscId | null = options?.discId ?? null;
@@ -51,15 +58,21 @@ export const readFromDisc = async (device: DevicePath, options: MetadataReadOpti
     }
   }
 
-  spinner?.start('Reading metadata (this may take a minute)...');
-
   // Resolve Device Path to MakeMKV Drive Index
-  const indexResult = await makemkv.findDriveIndex(device);
-  if (indexResult.isErr()) {
-    spinner?.fail(`Could not find MakeMKV drive index for ${device}: ${indexResult.error.message}`);
-    return err(new Error(`Could not find MakeMKV drive index for ${device}`, indexResult.error));
+  const driveInfo = await makemkv.driveInfo(device);
+  if (driveInfo.isErr()) {
+    spinner?.fail(`Could not find MakeMKV drive index for ${device}: ${driveInfo.error.message}`);
+    return err(new Error(`Could not find MakeMKV drive index for ${device}`, driveInfo.error));
   }
-  const driveIndex = indexResult.value;
+  const driveIndex = driveInfo.value.driveIndex;
+  const volumeLabel = driveInfo.value.volumeLabel;
+
+  const discName = await namePrompt(volumeLabel); 
+  if (!discName) {
+    return err(new Error("No disc name was provided"));
+  }
+  
+  spinner?.start('Reading metadata (this may take a minute)...');
 
   const progressCallback = spinner ? (progress : ProgressUpdate) => {
     let text = progress.message ? `Reading metadata: ${progress.message}` : "Reading metadata (this may take a minute)...";
@@ -75,6 +88,8 @@ export const readFromDisc = async (device: DevicePath, options: MetadataReadOpti
     spinner?.fail('Failed to parse disc metadata.');
     return err(new Error("Failed to parse disc metadata"));
   }
+
+  metadata.userProvidedName = discName;
 
   const saveRes = await ResultAsync.fromPromise(storage.saveMetadata(discId, metadata), toError);
   if (saveRes.isErr()) {

@@ -151,7 +151,12 @@ const extractTitle = (
     });
 };
 
-const findDriveIndex = async (devicePath: string): Promise<Result<number, Error>> => {
+type DriveInfo = {
+  volumeLabel?: string;
+  driveIndex: number
+}
+
+const driveInfo = async (devicePath: string): Promise<Result<DriveInfo, Error>> => {
   try {
     const { stdout } = await driveScan();
     const lines = stdout.split('\n');
@@ -159,11 +164,12 @@ const findDriveIndex = async (devicePath: string): Promise<Result<number, Error>
     for (const line of lines) {
       if (line.startsWith('DRV:')) {
         const parts = parseCsvLine(line.substring(4));
-        const index = parseInt(parts[0]);
+        const driveIndex = parseInt(parts[0]);
+        const volumeLabel = parts[5];
         const detectedPath = parts[6];
 
         if (detectedPath === devicePath) {
-          return ok(index);
+          return ok({ volumeLabel, driveIndex});
         }
       }
     }
@@ -171,6 +177,15 @@ const findDriveIndex = async (devicePath: string): Promise<Result<number, Error>
     return err(new Error(`Device ${devicePath} not found in MakeMKV drive scan`));
   } catch (e) {
     return err(e as Error);
+  }
+}
+
+const findDriveIndex = async (devicePath: string): Promise<Result<number, Error>> => {
+  const driveInfoRes = await driveInfo(devicePath);
+  if (driveInfoRes.isOk()) {
+    return ok(driveInfoRes.value.driveIndex);
+  } else {
+    return err(driveInfoRes.error);
   }
 }
 
@@ -198,6 +213,7 @@ export const makemkv = {
   driveScan,
   runInfo,
   extractTitle,
+  driveInfo,
   findDriveIndex,
   parseCsvLine
 }

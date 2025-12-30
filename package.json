@@ -11,6 +11,7 @@
     "watch": "bun run --filter '@ink/cli' --filter '@ink/shared' --parallel watch",
     "dev": "bun run --filter '*' dev",
     "test": "bun run --filter '*' test",
+    "check": "bun run --filter '*' check",
     "clean": "rm -rf packages/*/dist packages/*/node_modules node_modules",
     "typecheck": "bun run --filter '*' typecheck"
   },

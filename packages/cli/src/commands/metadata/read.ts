@@ -36,24 +36,14 @@ const run = async (options: ReadOptions) => {
     await waitForDevice(spinner, device);
 
     // 3 - read and save metadata from disc
-    const metadataRes = await lib.metadata.readFromDisc(device, {
+    const metadataRes = await lib.metadata.readFromDisc(device, namePrompt, {
       spinner,
       force: options.cache === false
     });
 
     const metadata = unwrapOrExit(metadataRes, 3);
 
-    if (!metadata.userProvidedName) {
-      // Prompt user for name
-      spinner.stop();
-      const userTitle = await promptUserForName(metadata.volumeLabel);
-      metadata.userProvidedName = userTitle;
-      spinner.start('Saving final metadata...');
-
-      await lib.storage.saveMetadata(metadata.discId, metadata);
-      spinner.succeed(`Saved metadata for ${metadata.userProvidedName}`);
-    }
-
+    spinner.succeed(`Saved metadata for ${metadata.userProvidedName}`);
     displayMetadata(metadata);
 
   } catch (error: any) {
@@ -62,25 +52,28 @@ const run = async (options: ReadOptions) => {
   }
 }
 
-async function promptUserForName(defaultName: string): Promise<string> {
+const namePrompt = async (label: string | undefined) => {
+  let discName: string = "";
+  while (!discName) {
+    discName = await promptUserForName(label);
+  }
+  return discName;
+}
+
+const promptUserForName = async (defaultName: string | undefined): Promise<string> => {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
 
   return new Promise((resolve) => {
-    rl.question(chalk.yellow(`\nEnter a name for this disc (default: ${defaultName}): `), (answer) => {
+    const msg = defaultName ? `Enter a name for this disc (default \`${defaultName}\`)` : "Enter a name for this disc";
+    rl.question(chalk.yellow(`\n${msg}: `), (answer) => {
       rl.close();
-      resolve(answer.trim() || defaultName);
+      resolve(answer.trim() || defaultName || "");
     });
   });
 }
-
-async function saveMetadata(dir: string, filepath: string, data: DiscMetadata) {
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filepath, JSON.stringify(data, null, 2));
-}
-
 
 // Helper types for parsing
 

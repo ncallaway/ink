@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs/promises";
+import { DiscId, lib } from "@ink/shared";
 
 export const getStagingDir = () => path.join(os.homedir(), '.ink', 'staging');
 
@@ -20,11 +21,8 @@ export const getEncodedStatusPath = (discId: string, track: number) => path.join
 export const getReviewedStatusPath = (discId: string, track: number) => path.join(getReviewedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
 export const getCopiedStatusPath = (discId: string, track: number) => path.join(getCopiedDir(discId), `t${track.toString().padStart(2, '0')}.done`);
 
-export async function ensureDirs(discId: string) {
-    await fs.mkdir(getExtractedDir(discId), { recursive: true });
-    await fs.mkdir(getEncodedDir(discId), { recursive: true });
-    await fs.mkdir(getReviewedDir(discId), { recursive: true });
-    await fs.mkdir(getCopiedDir(discId), { recursive: true });
+export async function ensureDirs(discId: DiscId) {
+  lib.storage.ensureStagingDirectories(discId as DiscId);
 }
 
 export async function hasStatus(path: string): Promise<boolean> {

@@ -24,7 +24,7 @@ export enum DriveStatus {
 export interface DiscMetadata {
   discId: DiscId;
   volumeLabel: string;
-  userProvidedName: string | undefined;
+  userProvidedName: string;
   scannedAt: string;
   tracks: TrackMetadata[];
 }
