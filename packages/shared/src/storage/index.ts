@@ -74,11 +74,8 @@ const readPlan = async (discId: DiscId): Promise<Result<BackupPlan, Error>> => {
 const writeTrackQueueMarker = async (discId: DiscId, track: TrackNumber, queue: TrackQueue, marker: 'done' | 'running' | 'ignored', data?: any) => {
   const path = trackQueueMarkerPath(discId, track, queue, marker);
 
-  const markerFile = await fs.open(path, 'w', 'utf-8');
-  if (data) {
-    await markerFile.write(JSON.stringify(data, null, 2));
-  }
-  await markerFile.close();
+  const content = data ? JSON.stringify(data, null, 2) : '';
+  await fs.writeFile(path, content, 'utf-8');
 
   return () => removeMarker(path);
 }

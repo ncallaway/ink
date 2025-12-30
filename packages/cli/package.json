@@ -20,6 +20,7 @@
   "dependencies": {
     "@ink/shared": "workspace:*",
     "@inquirer/prompts": "^8.1.0",
+    "@parcel/watcher": "^2.5.1",
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.5",
     "commander": "^11.1.0",

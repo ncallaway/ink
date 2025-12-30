@@ -80,7 +80,8 @@ export const processDrive = async (device: DevicePath, namePrompt: MetadataPromp
   for (const track of plan.tracks) {
     try {
       await processTrack(device, discId, driveIndex, track, spinner);
-    } catch(err) {
+    } catch(err: any) {
+      console.error(`Unexpected error processing track ${track.trackNumber}:`, err);
       // swallow-errors, as we want to try to process other tracks, and we'll
       // already have logged and recorded the track error.
     }
